@@ -1,0 +1,25 @@
+{
+  "name": "crossword-app",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:backend\"",
+    "dev:frontend": "cd frontend && npm start",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:proxy": "concurrently \"npm run dev:frontend\" \"npm run dev:backend:proxy\" \"npm run dev:proxy-server\"",
+    "dev:backend:proxy": "cd backend && PORT=3001 npm run dev",
+    "dev:proxy-server": "node proxy-server.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "http-proxy-middleware": "^2.0.6",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  }
+}
+
+

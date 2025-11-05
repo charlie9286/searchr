@@ -1,0 +1,50 @@
+ASSETS NEEDED FOR CROSSWORD GENERATOR APP
+==========================================
+
+You need to create the following image assets for the app to work properly:
+
+1. icon.png
+   - Size: 1024x1024 pixels
+   - Format: PNG
+   - Purpose: App icon for iOS/Android
+   - Location: frontend/assets/icon.png
+
+2. splash.png
+   - Size: 1242x2436 pixels (or similar aspect ratio)
+   - Format: PNG
+   - Purpose: Splash screen shown when app launches
+   - Location: frontend/assets/splash.png
+
+3. adaptive-icon.png (Android only)
+   - Size: 1024x1024 pixels
+   - Format: PNG with transparency
+   - Purpose: Android adaptive icon
+   - Location: frontend/assets/adaptive-icon.png
+
+4. favicon.png (Web only, optional)
+   - Size: 48x48 pixels
+   - Format: PNG
+   - Purpose: Browser tab icon
+   - Location: frontend/assets/favicon.png
+
+QUICK START OPTIONS:
+-------------------
+
+Option 1: Create simple placeholder images
+- Use any image editor to create colored squares
+- Paint, Photoshop, GIMP, or online tools work fine
+- For testing, any image will work (even a solid color)
+
+Option 2: Use online tools
+- https://www.canva.com/ - Easy online design
+- https://www.figma.com/ - Professional design tool
+- Search for "app icon generator" online
+
+Option 3: Use command line (Mac/Linux)
+- Run: convert -size 1024x1024 xc:#000000 icon.png
+- Requires ImageMagick installed
+
+IMPORTANT:
+----------
+The app will work even with placeholder images. Just create any
+1024x1024 PNG file named icon.png and you're good to go!

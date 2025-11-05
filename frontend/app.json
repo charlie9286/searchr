@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "Word Search Generator",
+    "slug": "wordsearch-generator",
+    "version": "1.0.0",
+    "sdkVersion": "54.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.wordsearch.generator"
+    },
+    "android": {
+      "package": "com.wordsearch.generator"
+    }
+  }
+}

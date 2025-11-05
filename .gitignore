@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+
+# Production
+build/
+dist/
+
+# Misc
+.DS_Store
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Expo
+.expo/
+.expo-shared/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backend
+backend/.env
+backend/uploads/
+backend/server.log
+
+# iOS
+frontend/ios/build/
+frontend/ios/Pods/
+frontend/ios/*.xcworkspace/xcuserdata/
+frontend/ios/*.xcodeproj/xcuserdata/
+frontend/ios/*.xcworkspace/xcshareddata/swiftpm/
+*.xcuserstate
+*.xcuserdatad/
+
+# Android
+frontend/android/app/build/
+frontend/android/.gradle/
+frontend/android/local.properties
+*.keystore
+!frontend/android/app/debug.keystore
+
+# EAS
+frontend/eas.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+
