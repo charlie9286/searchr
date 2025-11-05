@@ -12,7 +12,7 @@ app.use(cors());
 app.use(express.json());
 
 // Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'your-api-key-here');
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'AIzaSyC9Iwk-AhebNcYsKr25KnIbxDNW0j6eyzg');
 
 // Word Search Generation API
 // POST /api/wordsearch/generate
