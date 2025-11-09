@@ -167,58 +167,7 @@ async function buildPuzzle(topic) {
   return { grid, words, placements, topic };
 }
 
-async function selectQuickMatchTopic(recentTopics = []) {
-  const exclusions = recentTopics.map(t => t?.toUpperCase?.() || '').filter(Boolean);
-
-  const model = await generateModel();
-  const placeholder = exclusions.length > 0
-    ? exclusions.map(topic => `"${topic}"`).join(', ')
-    : '[]';
-
-  const prompt = `You are selecting a topic for a fast, family-friendly multiplayer word search puzzle.
-
-Return EXACTLY ONE topic that follows ALL rules:
-
-1. The topic must be:
-   - 1 to 3 English words.
-   - Concrete and easy to understand.
-   - Suitable for a general audience (no NSFW, no politics, no religion, no brands, no celebrities).
-   - Rich enough to generate at least 8 clearly related words (3–8 letters, uppercase A–Z only) for a word search.
-
-2. Variety requirements:
-   - The topic MUST NOT be any of the following recently used topics:
-     [${placeholder}]
-   - Prefer topics from areas like animals, nature, space, science, food, sports, music, geography, weather, ocean, history, art.
-
-3. Output format:
-   - Return ONLY valid JSON.
-   - No markdown, no comments, no explanations.
-   - Structure:
-     {"topic": "YOUR_TOPIC"}
-
-Now respond with the JSON only.`;
-
-  try {
-    const result = await model.generateContent(prompt);
-    const text = (await result.response).text();
-    const jsonMatch = text.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('No JSON detected in topic response');
-    }
-    const payload = JSON.parse(jsonMatch[0]);
-    const topic = String(payload.topic || '').trim();
-    if (!topic) {
-      throw new Error('Topic missing in response');
-    }
-    if (exclusions.includes(topic.toUpperCase())) {
-      throw new Error('Returned topic repeats recent topics');
-    }
-    return topic.toUpperCase();
-  } catch (error) {
-    console.error('Quick match topic selection failed:', error?.message);
-    throw new Error('Unable to generate unique quick match topic');
-  }
-}
+const PENDING_TOPIC = '__PENDING__';
 
 // Word Search Generation API
 // POST /api/wordsearch/generate
@@ -367,10 +316,9 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
       return res.status(400).json({ error: 'playerId is required' });
     }
 
-    // Join an existing waiting match regardless of topic for quick match
     const { data: waitingMatches, error: waitingErr } = await supabase
       .from('matches')
-      .select('id, topic, grid, words, placements')
+      .select('id, topic, status, puzzle_id')
       .eq('status', 'waiting')
       .order('created_at', { ascending: true })
       .limit(1);
@@ -395,98 +343,62 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
         return res.status(500).json({ error: insertPlayerErr.message });
       }
 
-      const { error: activateErr } = await supabase
+      const { data: recentTopicsData, error: recentErr } = await supabase
         .from('matches')
-        .update({ status: 'active' })
-        .eq('id', match.id);
+        .select('topic')
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-      if (activateErr) {
-        console.error('Supabase quickmatch activate error:', activateErr);
-        return res.status(500).json({ error: activateErr.message });
+      if (recentErr) {
+        console.warn('Supabase quickmatch recent topics warning:', recentErr?.message);
+      }
+
+      const recentTopics = (recentTopicsData || [])
+        .map(row => row.topic)
+        .filter(topic => topic && topic !== PENDING_TOPIC);
+
+      const topic = await selectQuickMatchTopic(recentTopics);
+      const puzzle = await buildPuzzle(topic);
+      const puzzleId = match.puzzle_id || puzzle.puzzleId || crypto.randomUUID();
+
+      const { error: updateErr } = await supabase
+        .from('matches')
+        .update({
+          topic,
+          puzzle_id: puzzleId,
+          grid: puzzle.grid,
+          words: puzzle.words,
+          placements: puzzle.placements,
+          status: 'active',
+        })
+        .eq('id', match.id)
+        .eq('status', 'waiting');
+
+      if (updateErr) {
+        console.error('Supabase quickmatch activate error:', updateErr);
+        return res.status(500).json({ error: updateErr.message });
       }
 
       return res.status(200).json({
         matchId: match.id,
-        topic: match.topic,
-        grid: match.grid,
-        words: match.words,
-        placements: match.placements,
-        status: 'active',
-        joinedAs: 'player2',
-      });
-    }
-
-    // Small grace period: another player might be creating a match concurrently.
-    await new Promise(resolve => setTimeout(resolve, 400));
-    const { data: secondCheckMatches, error: secondCheckErr } = await supabase
-      .from('matches')
-      .select('id, topic, grid, words, placements')
-      .eq('status', 'waiting')
-      .order('created_at', { ascending: true })
-      .limit(1);
-
-    if (secondCheckErr) {
-      console.warn('Supabase quickmatch second-check warning:', secondCheckErr);
-    } else if (secondCheckMatches && secondCheckMatches.length > 0) {
-      const match = secondCheckMatches[0];
-
-      const { error: insertPlayerErr } = await supabase
-        .from('match_players')
-        .insert({
-          match_id: match.id,
-          player_id: playerId,
-        });
-
-      if (insertPlayerErr) {
-        console.error('Supabase quickmatch join error (second check):', insertPlayerErr);
-        return res.status(500).json({ error: insertPlayerErr.message });
-      }
-
-      const { error: activateErr } = await supabase
-        .from('matches')
-        .update({ status: 'active' })
-        .eq('id', match.id);
-
-      if (activateErr) {
-        console.error('Supabase quickmatch activate error (second check):', activateErr);
-        return res.status(500).json({ error: activateErr.message });
-      }
-
-      return res.status(200).json({
-        matchId: match.id,
-        topic: match.topic,
-        grid: match.grid,
-        words: match.words,
-        placements: match.placements,
-        status: 'active',
-        joinedAs: 'player2',
-      });
-    }
-
-    // No waiting match - create new quick match with fresh topic
-    const { data: recentTopicsData, error: recentErr } = await supabase
-      .from('matches')
-      .select('topic')
-      .order('created_at', { ascending: false })
-      .limit(50);
-
-    if (recentErr) {
-      console.warn('Supabase quickmatch recent topics warning:', recentErr?.message);
-    }
-
-    const recentTopics = (recentTopicsData || []).map(row => row.topic).filter(Boolean);
-    const topic = await selectQuickMatchTopic(recentTopics);
-    const puzzle = await buildPuzzle(topic);
-    const puzzleId = puzzle.puzzleId || crypto.randomUUID();
-
-    const { data: newMatch, error: insertMatchErr } = await supabase
-      .from('matches')
-      .insert({
         topic,
-        puzzle_id: puzzleId,
         grid: puzzle.grid,
         words: puzzle.words,
         placements: puzzle.placements,
+        status: 'active',
+        joinedAs: 'player2',
+      });
+    }
+
+    const placeholderPuzzleId = crypto.randomUUID();
+    const { data: newMatch, error: insertMatchErr } = await supabase
+      .from('matches')
+      .insert({
+        topic: PENDING_TOPIC,
+        puzzle_id: placeholderPuzzleId,
+        grid: [],
+        words: [],
+        placements: [],
         status: 'waiting',
       })
       .select()
@@ -511,10 +423,10 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
 
     return res.status(200).json({
       matchId: newMatch.id,
-      topic: newMatch.topic,
-      grid: newMatch.grid,
-      words: newMatch.words,
-      placements: newMatch.placements,
+      topic: null,
+      grid: [],
+      words: [],
+      placements: [],
       status: 'waiting',
       joinedAs: 'player1',
     });

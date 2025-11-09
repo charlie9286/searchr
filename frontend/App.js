@@ -186,12 +186,16 @@ export default function App() {
         joinedAs: data.joinedAs,
       });
 
-      pendingPuzzleRef.current = {
-        grid: data.grid,
-        words: data.words,
-        placements: data.placements,
-        topic: data.topic,
-      };
+      if (data.status === 'active' && Array.isArray(data.grid) && data.grid.length > 0) {
+        pendingPuzzleRef.current = {
+          grid: data.grid,
+          words: data.words,
+          placements: data.placements,
+          topic: data.topic,
+        };
+      } else {
+        pendingPuzzleRef.current = null;
+      }
 
       if (data.topic) {
         setSearchTopic(data.topic);
@@ -202,7 +206,7 @@ export default function App() {
         setCurrentScreen('wordsearch');
         setIsQuickMatchSearching(false);
       } else {
-        setQuickMatchStatus(`Topic: ${data.topic}. Waiting for opponent to join…`);
+        setQuickMatchStatus('Waiting for opponent to join…');
         setIsQuickMatchSearching(true);
       }
     } catch (err) {
@@ -248,14 +252,18 @@ export default function App() {
         if (!newStatus) return;
 
         if (newStatus === 'active') {
-          setPendingMatch(prev => (prev ? { ...prev, status: 'active' } : prev));
+          setPendingMatch(prev => (prev ? { ...prev, status: 'active', topic: payload.new.topic || prev.topic } : prev));
           const puzzle = pendingPuzzleRef.current || {
             grid: payload.new.grid,
             words: payload.new.words,
             placements: payload.new.placements,
             topic: payload.new.topic,
           };
+          pendingPuzzleRef.current = puzzle;
           setPuzzleData(prev => prev || puzzle);
+          if (puzzle.topic) {
+            setSearchTopic(puzzle.topic);
+          }
           setQuickMatchStatus('Opponent connected! Starting…');
           setCurrentScreen('wordsearch');
           setIsQuickMatchSearching(false);
