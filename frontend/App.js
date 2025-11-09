@@ -322,6 +322,57 @@ export default function App() {
     };
   }, [gameMode, pendingMatch?.matchId, playerProfile?.playerId, searchTopic]);
 
+  useEffect(() => {
+    if (gameMode !== 'multiplayer') return undefined;
+    if (!pendingMatch || pendingMatch.status !== 'waiting') return undefined;
+
+    let cancelled = false;
+    let timer = null;
+
+    const pollStatus = async () => {
+      try {
+        const url = `${API_ENDPOINTS.MULTIPLAYER_STATUS}?matchId=${pendingMatch.matchId}`;
+        const response = await fetch(url);
+        const data = await response.json().catch(() => ({}));
+
+        if (!cancelled && response.ok && data.status === 'active') {
+          pendingPuzzleRef.current = {
+            grid: data.grid,
+            words: data.words,
+            placements: data.placements,
+            topic: data.topic,
+          };
+
+          setPendingMatch(prev => (prev ? { ...prev, status: 'active', topic: data.topic || prev.topic } : prev));
+
+          if (pendingPuzzleRef.current) {
+            setSearchTopic(pendingPuzzleRef.current.topic || searchTopic);
+            setQuickMatchStatus('Opponent connected! Starting…');
+            setPuzzleData(pendingPuzzleRef.current);
+            setCurrentScreen('wordsearch');
+            setIsQuickMatchSearching(false);
+          }
+          return;
+        }
+      } catch (err) {
+        console.warn('Match status poll failed:', err?.message);
+      }
+
+      if (!cancelled) {
+        timer = setTimeout(pollStatus, 2000);
+      }
+    };
+
+    timer = setTimeout(pollStatus, 1500);
+
+    return () => {
+      cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [gameMode, pendingMatch, searchTopic]);
+
   const broadcastWordFound = (word) => {
     if (!matchChannelRef.current || !word) return;
     matchChannelRef.current

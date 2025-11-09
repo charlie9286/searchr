@@ -588,6 +588,45 @@ app.post('/api/multiplayer/cancel', async (req, res) => {
   }
 });
 
+// Multiplayer Quick Match Status API
+// GET /api/multiplayer/status?matchId=uuid
+app.get('/api/multiplayer/status', async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase client not configured on server' });
+    }
+
+    const matchId = req.query.matchId;
+    if (!matchId || typeof matchId !== 'string') {
+      return res.status(400).json({ error: 'matchId is required' });
+    }
+
+    const { data: matchRecord, error: matchErr } = await supabase
+      .from('matches')
+      .select('id, topic, grid, words, placements, status, created_at')
+      .eq('id', matchId)
+      .single();
+
+    if (matchErr) {
+      console.warn('Supabase status lookup warning:', matchErr?.message);
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    return res.status(200).json({
+      matchId: matchRecord.id,
+      topic: matchRecord.topic === PENDING_TOPIC ? null : matchRecord.topic,
+      grid: matchRecord.grid || [],
+      words: matchRecord.words || [],
+      placements: matchRecord.placements || [],
+      status: matchRecord.status,
+      createdAt: matchRecord.created_at,
+    });
+  } catch (err) {
+    console.error('Match status error:', err);
+    res.status(500).json({ error: err.message || 'Failed to fetch match status' });
+  }
+});
+
 // For Vercel serverless, export the app directly
 // For local development, start the server
 if (require.main === module) {
