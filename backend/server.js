@@ -376,72 +376,109 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
       .select('id, topic, status, puzzle_id')
       .eq('status', 'waiting')
       .order('created_at', { ascending: true })
-      .limit(1);
+      .limit(5);
 
     if (waitingErr) {
       console.error('Supabase quickmatch waiting error:', waitingErr);
       return res.status(500).json({ error: waitingErr.message });
     }
 
+    let matchWaitingForOpponent = null;
+
     if (waitingMatches && waitingMatches.length > 0) {
-      const match = waitingMatches[0];
+      for (const match of waitingMatches) {
+        const { data: existingPlayers, error: playersErr } = await supabase
+          .from('match_players')
+          .select('player_id')
+          .eq('match_id', match.id);
 
-      const { error: insertPlayerErr } = await supabase
-        .from('match_players')
-        .insert({
-          match_id: match.id,
-          player_id: playerId,
-        });
+        if (playersErr) {
+          console.warn('Supabase quickmatch player lookup warning:', playersErr?.message);
+          continue;
+        }
 
-      if (insertPlayerErr) {
-        console.error('Supabase quickmatch join error:', insertPlayerErr);
-        return res.status(500).json({ error: insertPlayerErr.message });
-      }
+        const players = existingPlayers || [];
+        const hasDifferentPlayer = players.some(row => row.player_id && row.player_id !== playerId);
+        const alreadyWaiting = players.some(row => row.player_id === playerId);
 
-      const { data: recentTopicsData, error: recentErr } = await supabase
-        .from('matches')
-        .select('topic')
-        .order('created_at', { ascending: false })
-        .limit(50);
+        if (!hasDifferentPlayer && alreadyWaiting) {
+          matchWaitingForOpponent = match;
+          continue;
+        }
 
-      if (recentErr) {
-        console.warn('Supabase quickmatch recent topics warning:', recentErr?.message);
-      }
+        if (!hasDifferentPlayer) {
+          continue;
+        }
 
-      const recentTopics = (recentTopicsData || [])
-        .map(row => row.topic)
-        .filter(topic => topic && topic !== PENDING_TOPIC);
+        const { error: insertPlayerErr } = await supabase
+          .from('match_players')
+          .insert({
+            match_id: match.id,
+            player_id: playerId,
+          });
 
-      const topic = await selectQuickMatchTopic(recentTopics);
-      const puzzle = await buildPuzzle(topic);
-      const puzzleId = match.puzzle_id || puzzle.puzzleId || crypto.randomUUID();
+        if (insertPlayerErr) {
+          console.error('Supabase quickmatch join error:', insertPlayerErr);
+          return res.status(500).json({ error: insertPlayerErr.message });
+        }
 
-      const { error: updateErr } = await supabase
-        .from('matches')
-        .update({
+        const { data: recentTopicsData, error: recentErr } = await supabase
+          .from('matches')
+          .select('topic')
+          .order('created_at', { ascending: false })
+          .limit(50);
+
+        if (recentErr) {
+          console.warn('Supabase quickmatch recent topics warning:', recentErr?.message);
+        }
+
+        const recentTopics = (recentTopicsData || [])
+          .map(row => row.topic)
+          .filter(topic => topic && topic !== PENDING_TOPIC);
+
+        const topic = await selectQuickMatchTopic(recentTopics);
+        const puzzle = await buildPuzzle(topic);
+        const puzzleId = match.puzzle_id || puzzle.puzzleId || crypto.randomUUID();
+
+        const { error: updateErr } = await supabase
+          .from('matches')
+          .update({
+            topic,
+            puzzle_id: puzzleId,
+            grid: puzzle.grid,
+            words: puzzle.words,
+            placements: puzzle.placements,
+            status: 'active',
+          })
+          .eq('id', match.id)
+          .eq('status', 'waiting');
+
+        if (updateErr) {
+          console.error('Supabase quickmatch activate error:', updateErr);
+          return res.status(500).json({ error: updateErr.message });
+        }
+
+        return res.status(200).json({
+          matchId: match.id,
           topic,
-          puzzle_id: puzzleId,
           grid: puzzle.grid,
           words: puzzle.words,
           placements: puzzle.placements,
           status: 'active',
-        })
-        .eq('id', match.id)
-        .eq('status', 'waiting');
-
-      if (updateErr) {
-        console.error('Supabase quickmatch activate error:', updateErr);
-        return res.status(500).json({ error: updateErr.message });
+          joinedAs: 'player2',
+        });
       }
+    }
 
+    if (matchWaitingForOpponent) {
       return res.status(200).json({
-        matchId: match.id,
-        topic,
-        grid: puzzle.grid,
-        words: puzzle.words,
-        placements: puzzle.placements,
-        status: 'active',
-        joinedAs: 'player2',
+        matchId: matchWaitingForOpponent.id,
+        topic: null,
+        grid: [],
+        words: [],
+        placements: [],
+        status: 'waiting',
+        joinedAs: 'player1',
       });
     }
 
