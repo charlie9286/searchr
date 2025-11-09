@@ -169,6 +169,61 @@ async function buildPuzzle(topic) {
 
 const PENDING_TOPIC = '__PENDING__';
 
+async function selectQuickMatchTopic(recentTopics = []) {
+  const exclusions = recentTopics
+    .map(topic => (typeof topic === 'string' ? topic.toUpperCase() : ''))
+    .filter(Boolean);
+
+  const model = await generateModel();
+  const exclusionList = exclusions.length > 0
+    ? exclusions.map(topic => `"${topic}"`).join(', ')
+    : '[]';
+
+  const prompt = `You are selecting a topic for a fast, family-friendly multiplayer word search puzzle.
+
+Return EXACTLY ONE topic that follows ALL rules:
+
+1. The topic must be:
+   - 1 to 3 English words.
+   - Concrete and easy to understand.
+   - Suitable for a general audience (no NSFW, no politics, no religion, no brands, no celebrities).
+   - Rich enough to generate at least 8 clearly related words (3–8 letters, uppercase A–Z only) for a word search.
+
+2. Variety requirements:
+   - The topic MUST NOT be any of the following recently used topics:
+     [${exclusionList}]
+   - Prefer topics from areas like animals, nature, space, science, food, sports, music, geography, weather, ocean, history, art.
+
+3. Output format:
+   - Return ONLY valid JSON.
+   - No markdown, no comments, no explanations.
+   - Structure:
+     {"topic": "YOUR_TOPIC"}
+
+Now respond with the JSON only.`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const text = (await result.response).text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON detected in topic response');
+    }
+    const payload = JSON.parse(jsonMatch[0]);
+    const topic = String(payload.topic || '').trim();
+    if (!topic) {
+      throw new Error('Topic missing in response');
+    }
+    if (exclusions.includes(topic.toUpperCase())) {
+      throw new Error('Returned topic repeats recent topics');
+    }
+    return topic.toUpperCase();
+  } catch (error) {
+    console.error('Quick match topic selection failed:', error?.message);
+    throw new Error('Unable to generate unique quick match topic');
+  }
+}
+
 // Word Search Generation API
 // POST /api/wordsearch/generate
 app.post('/api/wordsearch/generate', async (req, res) => {
