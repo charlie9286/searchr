@@ -1,7 +1,9 @@
 const express = require('express');
 const cors = require('cors');
+const crypto = require('node:crypto');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const WordSearchGenerator = require('./wordSearchGenerator');
+const { supabase } = require('./supabaseClient');
 require('dotenv').config();
 
 const app = express();
@@ -33,31 +35,7 @@ app.get('/health', (req, res) => {
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'AIzaSyC9Iwk-AhebNcYsKr25KnIbxDNW0j6eyzg');
 
-// Word Search Generation API
-// POST /api/wordsearch/generate
-app.post('/api/wordsearch/generate', async (req, res) => {
-  try {
-    const { topic } = req.body;
-    if (!topic || topic.trim().length < 3) {
-      return res.status(400).json({ error: 'Topic must be at least 3 characters' });
-    }
-
-    // Get Gemini model - try gemini-2.0-flash-exp first, fallback to gemini-1.5-flash
-    let model;
-    try {
-      model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-      console.log('Using model: gemini-2.0-flash-exp');
-    } catch (err) {
-      try {
-        model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-        console.log('Using model: gemini-1.5-flash (fallback)');
-      } catch (err2) {
-        console.error('Failed to initialize any Gemini model:', err2.message);
-        throw new Error('Gemini API not available. Please check your API key.');
-      }
-    }
-    
-    const prompt = `Generate words for a word search puzzle about the topic: "${topic}".
+const PROMPT_TEMPLATE = (topic) => `Generate words for a word search puzzle about the topic: "${topic}".
 
 Follow these rules EXACTLY:
 
@@ -113,66 +91,389 @@ Uppercase A–Z only? YES
 
 No duplicates/hyphens/spaces? YES`;
 
-    let words = [];
+async function generateModel() {
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+    console.log('Using model: gemini-2.0-flash-exp');
+    return model;
+  } catch (err) {
+    console.warn('Failed to load gemini-2.0-flash-exp, falling back:', err.message);
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    console.log('Using model: gemini-1.5-flash (fallback)');
+    return model;
+  } catch (err) {
+    console.error('Failed to initialize any Gemini model:', err.message);
+    throw new Error('Gemini API not available. Please check your API key.');
+  }
+}
+
+async function generateWordsForTopic(topic) {
+  if (!topic || topic.trim().length < 3) {
+    throw new Error('Topic must be at least 3 characters');
+  }
+
+  const model = await generateModel();
+  const prompt = PROMPT_TEMPLATE(topic);
+
+  const result = await model.generateContent(prompt);
+  const text = (await result.response).text();
+  console.log('Gemini word search response:', text.substring(0, 300));
+
+  let words = [];
+
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (jsonMatch) {
     try {
-      const result = await model.generateContent(prompt);
-      const text = (await result.response).text();
-      console.log('Gemini word search response:', text.substring(0, 300));
-      
-      // Try to extract JSON from response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const payload = JSON.parse(jsonMatch[0]);
-        words = payload.words || [];
-        console.log('Parsed words:', words.length, words);
-      } else {
-        // Try to find words in the text even if not in JSON format
-        const wordMatches = text.match(/\b[A-Z]{3,8}\b/g);
-        if (wordMatches && wordMatches.length > 0) {
-          words = wordMatches.slice(0, 12); // Limit to max 12 but don't require 12
-          console.log('Extracted words from text:', words);
-        }
+      const payload = JSON.parse(jsonMatch[0]);
+      words = payload.words || [];
+      console.log('Parsed words:', words.length, words);
+    } catch (err) {
+      console.warn('Failed to parse JSON response, falling back to regex extraction:', err.message);
+    }
+  }
+
+  if (!words || words.length === 0) {
+    const wordMatches = text.match(/\b[A-Z]{3,8}\b/g);
+    if (wordMatches && wordMatches.length > 0) {
+      words = wordMatches.slice(0, 12);
+      console.log('Extracted words from text:', words);
+    }
+  }
+
+  if (!words || words.length === 0) {
+    throw new Error('No words found in response');
+  }
+
+  words = words
+    .map(w => String(w).toUpperCase().trim())
+    .filter(word => word.length >= 3 && word.length <= 8 && /^[A-Z]+$/.test(word))
+    .slice(0, 12);
+
+  if (words.length === 0) {
+    throw new Error('No valid words found after filtering');
+  }
+
+  console.log(`Successfully generated ${words.length} words for topic: ${topic}`);
+  return words;
+}
+
+async function buildPuzzle(topic) {
+  const words = await generateWordsForTopic(topic);
+  const generator = new WordSearchGenerator(15);
+  const { grid, placements } = generator.generate(words);
+  return { grid, words, placements, topic };
+}
+
+async function selectQuickMatchTopic(recentTopics = []) {
+  const exclusions = recentTopics.map(t => t?.toUpperCase?.() || '').filter(Boolean);
+
+  const model = await generateModel();
+  const placeholder = exclusions.length > 0
+    ? exclusions.map(topic => `"${topic}"`).join(', ')
+    : '[]';
+
+  const prompt = `You are selecting a topic for a fast, family-friendly multiplayer word search puzzle.
+
+Return EXACTLY ONE topic that follows ALL rules:
+
+1. The topic must be:
+   - 1 to 3 English words.
+   - Concrete and easy to understand.
+   - Suitable for a general audience (no NSFW, no politics, no religion, no brands, no celebrities).
+   - Rich enough to generate at least 8 clearly related words (3–8 letters, uppercase A–Z only) for a word search.
+
+2. Variety requirements:
+   - The topic MUST NOT be any of the following recently used topics:
+     [${placeholder}]
+   - Prefer topics from areas like animals, nature, space, science, food, sports, music, geography, weather, ocean, history, art.
+
+3. Output format:
+   - Return ONLY valid JSON.
+   - No markdown, no comments, no explanations.
+   - Structure:
+     {"topic": "YOUR_TOPIC"}
+
+Now respond with the JSON only.`;
+
+  try {
+    const result = await model.generateContent(prompt);
+    const text = (await result.response).text();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      throw new Error('No JSON detected in topic response');
+    }
+    const payload = JSON.parse(jsonMatch[0]);
+    const topic = String(payload.topic || '').trim();
+    if (!topic) {
+      throw new Error('Topic missing in response');
+    }
+    if (exclusions.includes(topic.toUpperCase())) {
+      throw new Error('Returned topic repeats recent topics');
+    }
+    return topic.toUpperCase();
+  } catch (error) {
+    console.error('Quick match topic selection failed:', error?.message);
+    throw new Error('Unable to generate unique quick match topic');
+  }
+}
+
+// Word Search Generation API
+// POST /api/wordsearch/generate
+app.post('/api/wordsearch/generate', async (req, res) => {
+  try {
+    const { topic } = req.body;
+    const puzzle = await buildPuzzle(topic);
+    res.json(puzzle);
+  } catch (err) {
+    console.error('Error generating word search:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate word search' });
+  }
+});
+
+// Matchmaking API for multiplayer
+// POST /api/matchmaking
+app.post('/api/matchmaking', async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase client not configured on server' });
+    }
+
+    const { playerId, topic } = req.body || {};
+
+    if (!playerId || typeof playerId !== 'string') {
+      return res.status(400).json({ error: 'playerId is required' });
+    }
+
+    if (!topic || topic.trim().length < 3) {
+      return res.status(400).json({ error: 'Topic must be at least 3 characters' });
+    }
+
+    const trimmedTopic = topic.trim();
+
+    // Try to find an existing waiting match with the same topic
+    const { data: waitingMatches, error: findErr } = await supabase
+      .from('matches')
+      .select('id, grid, words, placements, topic')
+      .eq('status', 'waiting')
+      .eq('topic', trimmedTopic)
+      .limit(1);
+
+    if (findErr) {
+      console.error('Supabase find waiting match error:', findErr);
+      return res.status(500).json({ error: findErr.message });
+    }
+
+    let matchRecord;
+
+    if (waitingMatches && waitingMatches.length > 0) {
+      matchRecord = waitingMatches[0];
+
+      const { error: joinErr } = await supabase
+        .from('match_players')
+        .insert({
+          match_id: matchRecord.id,
+          player_id: playerId,
+        });
+
+      if (joinErr) {
+        console.error('Supabase join match error:', joinErr);
+        return res.status(500).json({ error: joinErr.message });
       }
-      
-      // Validate that we have at least some words
-      if (!words || words.length === 0) {
-        throw new Error('No words found in response');
+
+      const { error: activateErr } = await supabase
+        .from('matches')
+        .update({ status: 'active' })
+        .eq('id', matchRecord.id);
+
+      if (activateErr) {
+        console.error('Supabase activate match error:', activateErr);
+        return res.status(500).json({ error: activateErr.message });
       }
-      
-      // Filter to valid words (3-8 letters, uppercase) and limit to 12 max
-      words = words.filter(w => {
-        const word = String(w).toUpperCase().trim();
-        return word.length >= 3 && word.length <= 8 && /^[A-Z]+$/.test(word);
-      }).slice(0, 12).map(w => String(w).toUpperCase().trim());
-      
-      // Accept any number of words from 1 to 12
-      if (words.length === 0) {
-        throw new Error('No valid words found after filtering');
-      }
-      
-      console.log(`Successfully generated ${words.length} words for topic: ${topic}`);
-      
-    } catch (e) {
-      console.error('Gemini API error:', e.message);
-      console.error('Full error:', e);
-      
-      // Provide a helpful error message
-      const errorMsg = e.message?.includes('404') || e.message?.includes('not found') 
-        ? 'Gemini API model not available. Please check your API key configuration.'
-        : `Failed to generate topic-related words: ${e.message}. Please try again or use a different topic.`;
-      
-      return res.status(500).json({ 
-        error: errorMsg
+
+      return res.status(200).json({
+        matchId: matchRecord.id,
+        topic: matchRecord.topic,
+        grid: matchRecord.grid,
+        words: matchRecord.words,
+        placements: matchRecord.placements,
+        status: 'active',
+        joinedAs: 'player2',
       });
     }
 
-    const generator = new WordSearchGenerator(15);
-    const { grid, placements } = generator.generate(words);
+    // Otherwise, create a new match and mark it as waiting
+    const puzzle = await buildPuzzle(trimmedTopic);
+    const puzzleId = puzzle.puzzleId || crypto.randomUUID();
 
-    res.json({ grid, words, placements, topic });
+    const { data: newMatch, error: insertErr } = await supabase
+      .from('matches')
+      .insert({
+        topic: trimmedTopic,
+        puzzle_id: puzzleId,
+        grid: puzzle.grid,
+        words: puzzle.words,
+        placements: puzzle.placements,
+        status: 'waiting',
+      })
+      .select()
+      .single();
+
+    if (insertErr) {
+      console.error('Supabase create match error:', insertErr);
+      return res.status(500).json({ error: insertErr.message });
+    }
+
+    const { error: registerErr } = await supabase
+      .from('match_players')
+      .insert({
+        match_id: newMatch.id,
+        player_id: playerId,
+      });
+
+    if (registerErr) {
+      console.error('Supabase register player error:', registerErr);
+      return res.status(500).json({ error: registerErr.message });
+    }
+
+    return res.status(200).json({
+      matchId: newMatch.id,
+      topic: newMatch.topic,
+      grid: newMatch.grid,
+      words: newMatch.words,
+      placements: newMatch.placements,
+      status: 'waiting',
+      joinedAs: 'player1',
+    });
   } catch (err) {
-    console.error('Error generating word search:', err);
-    res.status(500).json({ error: 'Failed to generate word search' });
+    console.error('Matchmaking error:', err);
+    res.status(500).json({ error: err.message || 'Matchmaking failed' });
+  }
+});
+
+// Multiplayer Quick Match API
+// POST /api/multiplayer/quickmatch
+app.post('/api/multiplayer/quickmatch', async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase client not configured on server' });
+    }
+
+    const { playerId } = req.body || {};
+
+    if (!playerId || typeof playerId !== 'string') {
+      return res.status(400).json({ error: 'playerId is required' });
+    }
+
+    // Join an existing waiting match regardless of topic for quick match
+    const { data: waitingMatches, error: waitingErr } = await supabase
+      .from('matches')
+      .select('id, topic, grid, words, placements')
+      .eq('status', 'waiting')
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (waitingErr) {
+      console.error('Supabase quickmatch waiting error:', waitingErr);
+      return res.status(500).json({ error: waitingErr.message });
+    }
+
+    if (waitingMatches && waitingMatches.length > 0) {
+      const match = waitingMatches[0];
+
+      const { error: insertPlayerErr } = await supabase
+        .from('match_players')
+        .insert({
+          match_id: match.id,
+          player_id: playerId,
+        });
+
+      if (insertPlayerErr) {
+        console.error('Supabase quickmatch join error:', insertPlayerErr);
+        return res.status(500).json({ error: insertPlayerErr.message });
+      }
+
+      const { error: activateErr } = await supabase
+        .from('matches')
+        .update({ status: 'active' })
+        .eq('id', match.id);
+
+      if (activateErr) {
+        console.error('Supabase quickmatch activate error:', activateErr);
+        return res.status(500).json({ error: activateErr.message });
+      }
+
+      return res.status(200).json({
+        matchId: match.id,
+        topic: match.topic,
+        grid: match.grid,
+        words: match.words,
+        placements: match.placements,
+        status: 'active',
+        joinedAs: 'player2',
+      });
+    }
+
+    // No waiting match - create new quick match with fresh topic
+    const { data: recentTopicsData, error: recentErr } = await supabase
+      .from('matches')
+      .select('topic')
+      .order('created_at', { ascending: false })
+      .limit(50);
+
+    if (recentErr) {
+      console.warn('Supabase quickmatch recent topics warning:', recentErr?.message);
+    }
+
+    const recentTopics = (recentTopicsData || []).map(row => row.topic).filter(Boolean);
+    const topic = await selectQuickMatchTopic(recentTopics);
+    const puzzle = await buildPuzzle(topic);
+    const puzzleId = puzzle.puzzleId || crypto.randomUUID();
+
+    const { data: newMatch, error: insertMatchErr } = await supabase
+      .from('matches')
+      .insert({
+        topic,
+        puzzle_id: puzzleId,
+        grid: puzzle.grid,
+        words: puzzle.words,
+        placements: puzzle.placements,
+        status: 'waiting',
+      })
+      .select()
+      .single();
+
+    if (insertMatchErr) {
+      console.error('Supabase quickmatch insert error:', insertMatchErr);
+      return res.status(500).json({ error: insertMatchErr.message });
+    }
+
+    const { error: insertPlayerErr } = await supabase
+      .from('match_players')
+      .insert({
+        match_id: newMatch.id,
+        player_id: playerId,
+      });
+
+    if (insertPlayerErr) {
+      console.error('Supabase quickmatch player insert error:', insertPlayerErr);
+      return res.status(500).json({ error: insertPlayerErr.message });
+    }
+
+    return res.status(200).json({
+      matchId: newMatch.id,
+      topic: newMatch.topic,
+      grid: newMatch.grid,
+      words: newMatch.words,
+      placements: newMatch.placements,
+      status: 'waiting',
+      joinedAs: 'player1',
+    });
+  } catch (err) {
+    console.error('Quickmatch error:', err);
+    res.status(500).json({ error: err.message || 'Quick match failed' });
   }
 });
 

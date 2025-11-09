@@ -5,7 +5,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_HORIZONTAL_PADDING = 32; // Padding on each side of the grid
 
 // Renders a word search grid. Highlights words in foundWords using placements.
-export default function WordSearchGrid({ grid, placements, foundWords, onWordFound, scrollViewRef }) {
+export default function WordSearchGrid({ grid, placements, foundWords, opponentFoundWords, onWordFound, scrollViewRef }) {
   const numRows = grid.length;
   const numCols = grid[0]?.length || 0;
   const [selectedPath, setSelectedPath] = useState([]);
@@ -207,10 +207,17 @@ export default function WordSearchGrid({ grid, placements, foundWords, onWordFou
     }
   };
 
-  const isCellHighlighted = (row, col) => {
-    if (!placements || placements.length === 0) return false;
+  const opponentWordsSet = useMemo(() => {
+    if (!opponentFoundWords) return new Set();
+    if (opponentFoundWords instanceof Set) return opponentFoundWords;
+    if (Array.isArray(opponentFoundWords)) return new Set(opponentFoundWords);
+    return new Set();
+  }, [opponentFoundWords]);
+
+  const isCellHighlightedForWords = (wordSet, row, col) => {
+    if (!placements || placements.length === 0 || !wordSet || wordSet.size === 0) return false;
     for (const p of placements) {
-      if (!foundWords?.has(p.word)) continue;
+      if (!wordSet.has(p.word)) continue;
       const len = p.word.length;
       for (let i = 0; i < len; i++) {
         const r = p.row + p.dr * i;
@@ -220,6 +227,9 @@ export default function WordSearchGrid({ grid, placements, foundWords, onWordFou
     }
     return false;
   };
+
+  const isCellHighlighted = (row, col) => isCellHighlightedForWords(foundWords, row, col);
+  const isCellHighlightedByOpponent = (row, col) => isCellHighlightedForWords(opponentWordsSet, row, col);
 
   const isCellSelected = (row, col) => {
     return selectedPath.some(cell => cell.row === row && cell.col === col);
@@ -241,6 +251,7 @@ export default function WordSearchGrid({ grid, placements, foundWords, onWordFou
           {Array.from({ length: numCols }).map((__, c) => {
             const ch = grid[r][c];
             const highlighted = isCellHighlighted(r, c);
+            const opponentHighlighted = isCellHighlightedByOpponent(r, c) && !highlighted;
             const selected = isCellSelected(r, c);
             return (
               <View 
@@ -249,6 +260,7 @@ export default function WordSearchGrid({ grid, placements, foundWords, onWordFou
                   styles.cell,
                   { width: CELL, height: CELL }, 
                   highlighted && styles.cellHighlighted,
+                  opponentHighlighted && styles.cellOpponent,
                   selected && styles.cellSelected
                 ]}
                 pointerEvents="none"
@@ -256,6 +268,7 @@ export default function WordSearchGrid({ grid, placements, foundWords, onWordFou
                 <Text style={[
                   styles.letter, 
                   highlighted && styles.letterHighlighted,
+                  opponentHighlighted && styles.letterOpponent,
                   selected && styles.letterSelected
                 ]}>{ch}</Text>
               </View>
@@ -286,6 +299,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E3F2FD',
     borderColor: '#90CAF9',
   },
+  cellOpponent: {
+    backgroundColor: '#FCE4EC',
+    borderColor: '#F48FB1',
+  },
   cellSelected: {
     backgroundColor: '#FFF9C4',
     borderColor: '#FFC107',
@@ -297,6 +314,9 @@ const styles = StyleSheet.create({
   },
   letterHighlighted: {
     color: '#0D47A1',
+  },
+  letterOpponent: {
+    color: '#AD1457',
   },
   letterSelected: {
     color: '#F57C00',

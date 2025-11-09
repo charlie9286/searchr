@@ -1,19 +1,19 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 
-export default function LoadingScreen({ onCancel }) {
+export default function LoadingScreen({ onCancel, message = 'Creating your word search…' }) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
         <ActivityIndicator size="large" color="#000000" />
-        <Text style={styles.loadingText}>Creating your word search…</Text>
+        <Text style={styles.loadingText}>{message}</Text>
         
         <TouchableOpacity
           style={styles.cancelButton}
           onPress={onCancel}
           accessibilityLabel="Cancel and return to search"
         >
-          <Text style={styles.cancelButtonText}>Edit Topic</Text>
+          <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
       </View>
     </View>

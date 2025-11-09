@@ -10,9 +10,18 @@ import {
   Alert,
 } from 'react-native';
 
-export default function SearchScreen({ onSubmit, error }) {
+export default function SearchScreen({ onSubmit, error, mode = 'classic', onChangeMode }) {
   const [topic, setTopic] = useState('');
   const [isValid, setIsValid] = useState(false);
+  const modeLabel = mode === 'practice' ? 'Practice' : mode === 'multiplayer' ? 'Multiplayer' : 'Classic';
+  const modeDescription = mode === 'practice'
+    ? 'Stopwatch tracks how long you take to solve.'
+    : mode === 'multiplayer'
+      ? 'Compete live with an opponent via Game Center.'
+      : 'No timer - take your time and enjoy the puzzle.';
+  const canChangeMode = typeof onChangeMode === 'function';
+
+  const buttonLabel = mode === 'multiplayer' ? 'Find Match (VS)' : 'Generate Word Search';
 
   const handleTextChange = (text) => {
     setTopic(text);
@@ -38,6 +47,22 @@ export default function SearchScreen({ onSubmit, error }) {
       style={styles.container}
     >
       <View style={styles.content}>
+        <View style={styles.modeContainer}>
+          <View style={styles.modeInfo}>
+            <Text style={styles.modeLabel}>Mode: {modeLabel}</Text>
+            <Text style={styles.modeDescription}>{modeDescription}</Text>
+          </View>
+          {canChangeMode && (
+            <TouchableOpacity
+              style={styles.modeButton}
+              onPress={onChangeMode}
+              accessibilityLabel="Change game mode"
+            >
+              <Text style={styles.modeButtonText}>Change Mode</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
         <Text style={styles.title}>Create Your Word Search</Text>
         
         <View style={styles.inputContainer}>
@@ -70,13 +95,19 @@ export default function SearchScreen({ onSubmit, error }) {
         )}
 
         <TouchableOpacity
-          style={[styles.submitButton, !isValid && styles.submitButtonDisabled]}
+          style={[
+            styles.submitButton,
+            mode === 'multiplayer' && styles.submitButtonMultiplayer,
+            !isValid && styles.submitButtonDisabled,
+          ]}
           onPress={handleSubmit}
           disabled={!isValid}
-          accessibilityLabel="Generate word search"
+          accessibilityLabel={mode === 'multiplayer' ? 'Find live opponent' : 'Generate word search'}
           accessibilityState={{ disabled: !isValid }}
         >
-          <Text style={styles.submitButtonText}>Generate Word Search</Text>
+          <Text style={[styles.submitButtonText, mode === 'multiplayer' && styles.submitButtonTextMultiplayer]}>
+            {buttonLabel}
+          </Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -93,12 +124,44 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
+  modeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 32,
+    gap: 12,
+  },
+  modeInfo: {
+    flex: 1,
+  },
+  modeLabel: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#000000',
+  },
+  modeDescription: {
+    fontSize: 14,
+    color: '#666666',
+    marginTop: 4,
+  },
+  modeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#000000',
+  },
+  modeButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#000000',
+  },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
     color: '#000000',
     textAlign: 'center',
-    marginBottom: 48,
+    marginBottom: 32,
   },
   inputContainer: {
     marginBottom: 24,
@@ -120,6 +183,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 16,
   },
+  submitButtonMultiplayer: {
+    backgroundColor: '#C62828',
+    marginTop: 32,
+  },
   submitButtonDisabled: {
     backgroundColor: '#CCCCCC',
   },
@@ -127,6 +194,10 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 18,
     fontWeight: '600',
+  },
+  submitButtonTextMultiplayer: {
+    fontSize: 20,
+    letterSpacing: 1,
   },
   errorCard: {
     backgroundColor: '#FFEBEE',

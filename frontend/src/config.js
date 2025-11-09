@@ -5,5 +5,7 @@ export const API_BASE_URL = __DEV__
 
 export const API_ENDPOINTS = {
   GENERATE_WORDSEARCH: `${API_BASE_URL}/api/wordsearch/generate`,
+  MATCHMAKING: `${API_BASE_URL}/api/matchmaking`,
+  MULTIPLAYER_QUICKMATCH: `${API_BASE_URL}/api/multiplayer/quickmatch`,
 };
 

@@ -1,16 +1,40 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-export default function WordList({ words, foundWords }) {
+export default function WordList({ words, foundWords, opponentFoundWords }) {
+  const opponentSet = React.useMemo(() => {
+    if (!opponentFoundWords) return new Set();
+    if (opponentFoundWords instanceof Set) return opponentFoundWords;
+    if (Array.isArray(opponentFoundWords)) return new Set(opponentFoundWords);
+    return new Set();
+  }, [opponentFoundWords]);
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Find these words</Text>
       <View style={styles.grid}>
         {words.map((w) => {
           const found = foundWords?.has(w);
+          const opponentFound = opponentSet.has(w) && !found;
           return (
-            <View key={w} style={[styles.wordPill, found && styles.wordPillFound]} accessibilityState={{ selected: found }}>
-              <Text style={[styles.wordText, found && styles.wordTextFound]}>{w}</Text>
+            <View
+              key={w}
+              style={[
+                styles.wordPill,
+                found && styles.wordPillFound,
+                opponentFound && styles.wordPillOpponent,
+              ]}
+              accessibilityState={{ selected: found }}
+            >
+              <Text
+                style={[
+                  styles.wordText,
+                  found && styles.wordTextFound,
+                  opponentFound && styles.wordTextOpponent,
+                ]}
+              >
+                {w}
+              </Text>
             </View>
           );
         })}
@@ -52,6 +76,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8F5E9',
     borderColor: '#A5D6A7',
   },
+  wordPillOpponent: {
+    backgroundColor: '#FCE4EC',
+    borderColor: '#F48FB1',
+  },
   wordText: {
     fontSize: 14,
     color: '#000000',
@@ -60,5 +88,8 @@ const styles = StyleSheet.create({
   wordTextFound: {
     color: '#1B5E20',
     textDecorationLine: 'line-through',
+  },
+  wordTextOpponent: {
+    color: '#AD1457',
   },
 });
