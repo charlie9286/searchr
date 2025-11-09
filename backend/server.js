@@ -524,6 +524,66 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
   }
 });
 
+// Multiplayer Quick Match Cancel API
+// POST /api/multiplayer/cancel
+app.post('/api/multiplayer/cancel', async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase client not configured on server' });
+    }
+
+    const { playerId, matchId } = req.body || {};
+
+    if (!playerId || typeof playerId !== 'string') {
+      return res.status(400).json({ error: 'playerId is required' });
+    }
+
+    if (!matchId || typeof matchId !== 'string') {
+      return res.status(400).json({ error: 'matchId is required' });
+    }
+
+    const { data: matchRecord, error: matchErr } = await supabase
+      .from('matches')
+      .select('id, status, topic')
+      .eq('id', matchId)
+      .single();
+
+    if (matchErr) {
+      console.warn('Supabase cancel match lookup warning:', matchErr?.message);
+      return res.status(200).json({ cancelled: false });
+    }
+
+    if (!matchRecord || matchRecord.status !== 'waiting') {
+      return res.status(200).json({ cancelled: false });
+    }
+
+    const { error: deletePlayersErr } = await supabase
+      .from('match_players')
+      .delete()
+      .eq('match_id', matchId)
+      .eq('player_id', playerId);
+
+    if (deletePlayersErr) {
+      console.warn('Supabase cancel match_players warning:', deletePlayersErr?.message);
+    }
+
+    const { error: updateErr } = await supabase
+      .from('matches')
+      .update({ status: 'cancelled' })
+      .eq('id', matchId)
+      .eq('status', 'waiting');
+
+    if (updateErr) {
+      console.warn('Supabase cancel match update warning:', updateErr?.message);
+    }
+
+    return res.status(200).json({ cancelled: true });
+  } catch (err) {
+    console.error('Cancel quickmatch error:', err);
+    res.status(500).json({ error: err.message || 'Failed to cancel match' });
+  }
+});
+
 // For Vercel serverless, export the app directly
 // For local development, start the server
 if (require.main === module) {

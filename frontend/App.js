@@ -1,5 +1,5 @@
 import { registerRootComponent } from 'expo';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { StyleSheet, SafeAreaView } from 'react-native';
 
 import SplashScreen from './src/screens/SplashScreen';
@@ -70,6 +70,25 @@ export default function App() {
     setQuickMatchStatus('Tap Find Opponent to start.');
     setMatchResult(null);
   };
+
+  const cancelPendingMatch = useCallback(async () => {
+    if (!supabase) return;
+    if (!pendingMatch || pendingMatch.status !== 'waiting') return;
+    if (!playerProfile?.playerId) return;
+
+    try {
+      await fetch(API_ENDPOINTS.MULTIPLAYER_CANCEL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: playerProfile.playerId,
+          matchId: pendingMatch.matchId,
+        }),
+      });
+    } catch (err) {
+      console.warn('Failed to cancel pending match:', err?.message);
+    }
+  }, [pendingMatch, playerProfile?.playerId]);
 
   const handleSplashComplete = () => {
     setCanModeSelectGoBack(false);
@@ -347,19 +366,21 @@ export default function App() {
     setCurrentScreen('multiplayer-result');
   };
 
-  const handleCancelLoading = () => {
+  const handleCancelLoading = async () => {
     setLoading(false);
     setCurrentScreen('search');
     setError(null);
+    await cancelPendingMatch();
     resetMultiplayerState();
   };
 
-  const handleBackToSearch = () => {
+  const handleBackToSearch = async () => {
     if (gameMode === 'multiplayer') {
       setCurrentScreen('multiplayer');
     } else {
       setCurrentScreen('search');
     }
+    await cancelPendingMatch();
     setPuzzleData(null);
     setError(null);
     resetMultiplayerState();
@@ -399,7 +420,8 @@ export default function App() {
     }
   };
 
-  const handleModeSelect = (mode) => {
+  const handleModeSelect = async (mode) => {
+    await cancelPendingMatch();
     setGameMode(mode);
     setPuzzleData(null);
     setSearchTopic('');
@@ -415,7 +437,8 @@ export default function App() {
     }
   };
 
-  const handleChangeMode = () => {
+  const handleChangeMode = async () => {
+    await cancelPendingMatch();
     setSearchTopic('');
     setPuzzleData(null);
     setError(null);
@@ -429,10 +452,11 @@ export default function App() {
     setCurrentScreen('search');
   };
 
-  const handleNewTopic = () => {
+  const handleNewTopic = async () => {
     setSearchTopic('');
     setPuzzleData(null);
     setError(null);
+    await cancelPendingMatch();
     if (gameMode === 'multiplayer') {
       setCurrentScreen('multiplayer');
     } else {
