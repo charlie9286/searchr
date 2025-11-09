@@ -416,6 +416,53 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
       });
     }
 
+    // Small grace period: another player might be creating a match concurrently.
+    await new Promise(resolve => setTimeout(resolve, 400));
+    const { data: secondCheckMatches, error: secondCheckErr } = await supabase
+      .from('matches')
+      .select('id, topic, grid, words, placements')
+      .eq('status', 'waiting')
+      .order('created_at', { ascending: true })
+      .limit(1);
+
+    if (secondCheckErr) {
+      console.warn('Supabase quickmatch second-check warning:', secondCheckErr);
+    } else if (secondCheckMatches && secondCheckMatches.length > 0) {
+      const match = secondCheckMatches[0];
+
+      const { error: insertPlayerErr } = await supabase
+        .from('match_players')
+        .insert({
+          match_id: match.id,
+          player_id: playerId,
+        });
+
+      if (insertPlayerErr) {
+        console.error('Supabase quickmatch join error (second check):', insertPlayerErr);
+        return res.status(500).json({ error: insertPlayerErr.message });
+      }
+
+      const { error: activateErr } = await supabase
+        .from('matches')
+        .update({ status: 'active' })
+        .eq('id', match.id);
+
+      if (activateErr) {
+        console.error('Supabase quickmatch activate error (second check):', activateErr);
+        return res.status(500).json({ error: activateErr.message });
+      }
+
+      return res.status(200).json({
+        matchId: match.id,
+        topic: match.topic,
+        grid: match.grid,
+        words: match.words,
+        placements: match.placements,
+        status: 'active',
+        joinedAs: 'player2',
+      });
+    }
+
     // No waiting match - create new quick match with fresh topic
     const { data: recentTopicsData, error: recentErr } = await supabase
       .from('matches')
