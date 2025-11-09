@@ -7,6 +7,7 @@ import SearchScreen from './src/screens/SearchScreen';
 import LoadingScreen from './src/screens/LoadingScreen';
 import ModeSelectScreen from './src/screens/ModeSelectScreen';
 import MultiplayerQuickMatchScreen from './src/screens/MultiplayerQuickMatchScreen';
+import MatchResultScreen from './src/screens/MatchResultScreen';
 import WordSearchScreen from './src/screens/WordSearchScreen';
 import { API_ENDPOINTS } from './src/config';
 import { supabase } from './src/lib/supabase';
@@ -26,6 +27,7 @@ export default function App() {
   const [opponentFoundWords, setOpponentFoundWords] = useState(() => new Set());
   const [isQuickMatchSearching, setIsQuickMatchSearching] = useState(false);
   const [quickMatchStatus, setQuickMatchStatus] = useState('Tap Find Opponent to start.');
+  const [matchResult, setMatchResult] = useState(null);
 
   const matchChannelRef = useRef(null);
   const pendingPuzzleRef = useRef(null);
@@ -66,6 +68,7 @@ export default function App() {
     setLoadingMessage('Creating your word search…');
     setIsQuickMatchSearching(false);
     setQuickMatchStatus('Tap Find Opponent to start.');
+    setMatchResult(null);
   };
 
   const handleSplashComplete = () => {
@@ -138,6 +141,7 @@ export default function App() {
     setError(null);
     setIsQuickMatchSearching(true);
     setQuickMatchStatus('Finding an opponent…');
+    setMatchResult(null);
 
     try {
       const response = await fetch(API_ENDPOINTS.MULTIPLAYER_QUICKMATCH, {
@@ -256,6 +260,23 @@ export default function App() {
         setPendingMatch(prev => (prev ? { ...prev, status: 'finished' } : prev));
         setIsQuickMatchSearching(false);
         setQuickMatchStatus('Opponent finished the puzzle.');
+
+        if (payload) {
+          let outcome = payload.outcome || 'draw';
+          if (outcome === 'win') outcome = 'lose';
+          else if (outcome === 'lose') outcome = 'win';
+
+          const summary = {
+            outcome,
+            playerWins: payload.opponentWins ?? 0,
+            opponentWins: payload.playerWins ?? 0,
+            topic: payload.topic || pendingPuzzleRef.current?.topic || searchTopic,
+          };
+
+          setMatchResult(summary);
+          setCurrentScreen('multiplayer-result');
+          cleanupMatchChannel();
+        }
       });
 
     channel.subscribe((status) => {
@@ -272,7 +293,7 @@ export default function App() {
         matchChannelRef.current = null;
       }
     };
-  }, [gameMode, pendingMatch?.matchId, playerProfile?.playerId]);
+  }, [gameMode, pendingMatch?.matchId, playerProfile?.playerId, searchTopic]);
 
   const broadcastWordFound = (word) => {
     if (!matchChannelRef.current || !word) return;
@@ -288,19 +309,42 @@ export default function App() {
       .catch(err => console.warn('Failed to send word_found event:', err?.message));
   };
 
-  const broadcastMatchComplete = () => {
+  const broadcastMatchComplete = (summary = {}) => {
     if (!matchChannelRef.current) return;
+
     matchChannelRef.current
       .send({
         type: 'broadcast',
         event: 'game_over',
         payload: {
           playerId: playerProfile?.playerId,
+          outcome: summary.outcome,
+          playerWins: summary.playerWins,
+          opponentWins: summary.opponentWins,
+          topic: summary.topic || pendingPuzzleRef.current?.topic || searchTopic,
         },
       })
       .catch(err => console.warn('Failed to send game_over event:', err?.message));
 
     setPendingMatch(prev => (prev ? { ...prev, status: 'finished' } : prev));
+  };
+
+  const handleMatchResult = (result) => {
+    if (!result) return;
+
+    const topic = result.topic || pendingPuzzleRef.current?.topic || searchTopic;
+    setMatchResult({
+      outcome: result.outcome,
+      playerWins: result.playerWins ?? 0,
+      opponentWins: result.opponentWins ?? 0,
+      topic,
+    });
+
+    setIsQuickMatchSearching(false);
+    setQuickMatchStatus('Match finished.');
+    setPendingMatch(prev => (prev ? { ...prev, status: 'finished' } : prev));
+    cleanupMatchChannel();
+    setCurrentScreen('multiplayer-result');
   };
 
   const handleCancelLoading = () => {
@@ -434,6 +478,23 @@ export default function App() {
           statusText={quickMatchStatus}
         />
       )}
+
+      {currentScreen === 'multiplayer-result' && matchResult && (
+        <MatchResultScreen
+          outcome={matchResult.outcome}
+          playerScore={matchResult.playerWins}
+          opponentScore={matchResult.opponentWins}
+          topic={matchResult.topic}
+          onPlayAgain={() => {
+            resetMultiplayerState();
+            setCurrentScreen('multiplayer');
+          }}
+          onExit={() => {
+            resetMultiplayerState();
+            setCurrentScreen('modeselect');
+          }}
+        />
+      )}
  
       {currentScreen === 'wordsearch' && puzzleData && (
         <WordSearchScreen
@@ -445,6 +506,7 @@ export default function App() {
           onBroadcastWord={gameMode === 'multiplayer' ? broadcastWordFound : undefined}
           opponentFoundWords={gameMode === 'multiplayer' ? Array.from(opponentFoundWords) : []}
           onMatchComplete={gameMode === 'multiplayer' ? broadcastMatchComplete : undefined}
+          onShowResult={gameMode === 'multiplayer' ? handleMatchResult : undefined}
           playerLabel={playerProfile?.displayName || 'You'}
           opponentLabel="Opponent"
         />

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import WordSearchGrid from '../components/WordSearchGrid';
@@ -15,14 +15,18 @@ export default function WordSearchScreen({
   onBroadcastWord,
   opponentFoundWords = [],
   onMatchComplete,
+  onShowResult,
   playerLabel = 'You',
   opponentLabel = 'Opponent',
 }) {
   const [foundWords, setFoundWords] = useState(new Set());
   const [timeElapsed, setTimeElapsed] = useState(mode === 'practice' ? 0 : null);
+  const [roundResults, setRoundResults] = useState([]); // 'player' | 'opponent' | 'draw'
+  const [matchOutcome, setMatchOutcome] = useState(null); // 'win' | 'lose' | 'draw'
   const scrollViewRef = useRef(null);
   const timerIntervalRef = useRef(null);
   const hasBroadcastGameOverRef = useRef(false);
+  const previousOpponentWordsRef = useRef(new Set());
 
   // Reset found words when puzzle changes
   useEffect(() => {
@@ -30,7 +34,10 @@ export default function WordSearchScreen({
     if (mode === 'practice') {
       setTimeElapsed(0);
     }
+    setRoundResults([]);
+    setMatchOutcome(null);
     hasBroadcastGameOverRef.current = false;
+    previousOpponentWordsRef.current = new Set();
   }, [topic, puzzle, mode]);
 
   const opponentSet = useMemo(() => {
@@ -38,6 +45,18 @@ export default function WordSearchScreen({
     if (Array.isArray(opponentFoundWords)) return new Set(opponentFoundWords);
     return new Set();
   }, [opponentFoundWords]);
+
+  const totalWords = puzzle.words?.length || 0;
+  const maxRounds = useMemo(() => Math.min(Math.max(totalWords, 1), 5), [totalWords]);
+
+  const addRoundResult = useCallback((winner) => {
+    setRoundResults(prev => {
+      if (prev.length >= maxRounds) {
+        return prev;
+      }
+      return [...prev, winner];
+    });
+  }, [maxRounds]);
 
   // Stopwatch logic for practice mode
   useEffect(() => {
@@ -96,18 +115,37 @@ export default function WordSearchScreen({
 
       if (mode === 'multiplayer' && typeof onBroadcastWord === 'function') {
         onBroadcastWord(word);
+        addRoundResult('player');
       }
 
       return next;
     });
   };
 
+  useEffect(() => {
+    if (mode !== 'multiplayer') {
+      previousOpponentWordsRef.current = new Set(opponentSet);
+      return;
+    }
+
+    const previous = previousOpponentWordsRef.current;
+    const prevSize = previous.size;
+    const currentSize = opponentSet.size;
+    if (currentSize > prevSize) {
+      const additions = Math.min(currentSize - prevSize, maxRounds);
+      for (let i = 0; i < additions; i += 1) {
+        addRoundResult('opponent');
+      }
+    }
+    previousOpponentWordsRef.current = new Set(opponentSet);
+  }, [opponentSet, mode, addRoundResult, maxRounds]);
+
   const allFound = puzzle.words?.every(w => foundWords.has(w));
   const foundCount = foundWords.size;
-  const totalWords = puzzle.words?.length || 0;
   const progressText = `${foundCount}/${totalWords}`;
-  const opponentCount = opponentSet.size;
-  const penaltySlots = Math.min(Math.max(totalWords, 1), 5);
+
+  const playerWins = useMemo(() => roundResults.filter(result => result === 'player').length, [roundResults]);
+  const opponentWins = useMemo(() => roundResults.filter(result => result === 'opponent').length, [roundResults]);
 
   // Format time as MM:SS
   const formatTime = (seconds) => {
@@ -118,23 +156,60 @@ export default function WordSearchScreen({
 
   useEffect(() => {
     if (mode !== 'multiplayer') return;
-    if (allFound && !hasBroadcastGameOverRef.current && typeof onMatchComplete === 'function') {
-      hasBroadcastGameOverRef.current = true;
-      onMatchComplete({ wordsFound: foundCount });
-    }
-  }, [allFound, foundCount, mode, onMatchComplete]);
 
-  const renderPenaltyRow = (filledCount) => (
+    const uniqueWords = new Set([
+      ...Array.from(foundWords || []),
+      ...Array.from(opponentSet || []),
+    ]).size;
+
+    const roundsFilled = roundResults.length >= maxRounds;
+    const allWordsCompleted = uniqueWords >= totalWords && totalWords > 0;
+
+    if ((roundsFilled || allWordsCompleted) && !matchOutcome) {
+      let outcome = 'draw';
+      if (playerWins > opponentWins) outcome = 'win';
+      else if (playerWins < opponentWins) outcome = 'lose';
+      setMatchOutcome(outcome);
+    }
+  }, [mode, roundResults, maxRounds, foundWords, opponentSet, totalWords, matchOutcome, playerWins, opponentWins]);
+
+  useEffect(() => {
+    if (mode !== 'multiplayer' || !matchOutcome) {
+      return;
+    }
+
+    if (typeof onMatchComplete === 'function' && !hasBroadcastGameOverRef.current) {
+      hasBroadcastGameOverRef.current = true;
+      onMatchComplete({
+        outcome: matchOutcome,
+        playerWins,
+        opponentWins,
+        topic,
+      });
+    }
+
+    if (typeof onShowResult === 'function') {
+      onShowResult({
+        outcome: matchOutcome,
+        playerWins,
+        opponentWins,
+        topic,
+      });
+    }
+  }, [matchOutcome, mode, onMatchComplete, onShowResult, playerWins, opponentWins, topic]);
+
+  const renderPenaltyRow = (winner) => (
     <View style={styles.penaltyRow}>
-      {Array.from({ length: penaltySlots }).map((_, index) => (
-        <View
-          key={`penalty-${index}`}
-          style={[
-            styles.penaltyDot,
-            index < Math.min(filledCount, penaltySlots) && styles.penaltyDotFilled,
-          ]}
-        />
-      ))}
+      {Array.from({ length: maxRounds }).map((_, index) => {
+        const result = roundResults[index];
+        const isWinner = result === winner;
+        return (
+          <View
+            key={`${winner}-penalty-${index}`}
+            style={[styles.penaltyDot, isWinner && styles.penaltyDotFilled]}
+          />
+        );
+      })}
     </View>
   );
 
@@ -161,9 +236,6 @@ export default function WordSearchScreen({
           <Text style={styles.bannerText}>All words found! 🎉</Text>
           {mode === 'practice' && timeElapsed !== null && (
             <Text style={styles.bannerTimeText}>Time: {formatTime(timeElapsed)}</Text>
-          )}
-          {mode === 'multiplayer' && (
-            <Text style={styles.bannerTimeText}>Final Score {foundCount} - {opponentCount}</Text>
           )}
         </View>
       )}
@@ -192,11 +264,11 @@ export default function WordSearchScreen({
         <View style={styles.scoreboard}>
           <View style={styles.scoreRow}>
             <Text style={styles.scoreLabel}>{playerLabel}</Text>
-            {renderPenaltyRow(foundCount)}
+            {renderPenaltyRow('player')}
           </View>
           <View style={styles.scoreRow}>
             <Text style={styles.scoreLabel}>{opponentLabel}</Text>
-            {renderPenaltyRow(opponentCount)}
+            {renderPenaltyRow('opponent')}
           </View>
         </View>
       )}
