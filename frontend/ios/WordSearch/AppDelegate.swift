@@ -1,6 +1,7 @@
 import Expo
 import React
 import ReactAppDependencyProvider
+import GameKit
 
 @UIApplicationMain
 public class AppDelegate: ExpoAppDelegate {
@@ -28,6 +29,8 @@ public class AppDelegate: ExpoAppDelegate {
       in: window,
       launchOptions: launchOptions)
 #endif
+
+    authenticateGameCenterLocalPlayer()
 
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
@@ -66,5 +69,45 @@ class ReactNativeDelegate: ExpoReactNativeFactoryDelegate {
 #else
     return Bundle.main.url(forResource: "main", withExtension: "jsbundle")
 #endif
+  }
+}
+
+// MARK: - Game Center Support
+extension AppDelegate {
+  private func authenticateGameCenterLocalPlayer() {
+    guard GKLocalPlayer.local.isAuthenticated == false else {
+      configureGameCenterAccessPoint()
+      NSLog("[GameCenter] Local player already authenticated as %@", GKLocalPlayer.local.displayName)
+      return
+    }
+
+    GKLocalPlayer.local.authenticateHandler = { [weak self] viewController, error in
+      if let error = error {
+        NSLog("[GameCenter] Authentication handler error: %@", error.localizedDescription)
+      }
+
+      if let viewController = viewController {
+        NSLog("[GameCenter] Presenting authentication view controller")
+        self?.window?.rootViewController?.present(viewController, animated: true)
+        return
+      }
+
+      if GKLocalPlayer.local.isAuthenticated {
+        NSLog("[GameCenter] Authentication succeeded for %@", GKLocalPlayer.local.displayName)
+        self?.configureGameCenterAccessPoint()
+      } else {
+        NSLog("[GameCenter] Player not authenticated and no UI was presented")
+      }
+    }
+  }
+
+  private func configureGameCenterAccessPoint() {
+    if #available(iOS 14.0, *) {
+      let accessPoint = GKAccessPoint.shared
+      accessPoint.location = .topLeading
+      accessPoint.showHighlights = true
+      accessPoint.isActive = true
+      NSLog("[GameCenter] Access point activated")
+    }
   }
 }
