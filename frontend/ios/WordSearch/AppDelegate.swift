@@ -95,6 +95,7 @@ extension AppDelegate {
       if GKLocalPlayer.local.isAuthenticated {
         NSLog("[GameCenter] Authentication succeeded for %@", GKLocalPlayer.local.displayName)
         self?.configureGameCenterAccessPoint()
+        self?.dismissAccessPointAfterDelay()
       } else {
         NSLog("[GameCenter] Player not authenticated and no UI was presented")
       }
@@ -108,6 +109,15 @@ extension AppDelegate {
       accessPoint.showHighlights = true
       accessPoint.isActive = true
       NSLog("[GameCenter] Access point activated")
+    }
+  }
+
+  private func dismissAccessPointAfterDelay() {
+    guard #available(iOS 14.0, *) else { return }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+      let accessPoint = GKAccessPoint.shared
+      accessPoint.isActive = false
+      NSLog("[GameCenter] Access point hidden after banner")
     }
   }
 }

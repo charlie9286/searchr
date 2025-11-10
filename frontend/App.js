@@ -35,16 +35,25 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
 
+    console.log('[App] Starting initial Game Center authentication...');
     authenticateGameCenter()
       .then(profile => {
+        console.log('[App] Authentication result:', JSON.stringify(profile, null, 2));
         if (isMounted) {
           setPlayerProfile(profile);
+          if (profile.isGuest) {
+            console.warn('[App] ⚠️ Player authenticated as Guest - Game Center may not be available');
+          } else {
+            console.log('[App] ✓ Player authenticated as:', profile.displayName);
+          }
         }
       })
       .catch(err => {
-        console.warn('Game Center auth error:', err?.message);
+        console.error('[App] Game Center auth error:', err?.message || err);
         if (isMounted) {
-          setPlayerProfile({ playerId: `guest-${Date.now()}`, displayName: 'Guest', isGuest: true });
+          const guestProfile = { playerId: `guest-${Date.now()}`, displayName: 'Guest', isGuest: true };
+          setPlayerProfile(guestProfile);
+          console.warn('[App] ⚠️ Falling back to Guest profile');
         }
       });
 
@@ -52,6 +61,36 @@ export default function App() {
       isMounted = false;
     };
   }, []);
+
+  // Re-authenticate when multiplayer screen is shown if player is still Guest
+  useEffect(() => {
+    if (currentScreen === 'multiplayer' && playerProfile?.isGuest) {
+      console.log('[App] Multiplayer screen shown with Guest profile - attempting re-authentication...');
+      let isMounted = true;
+      
+      // Wait a bit then try to authenticate again
+      const timeoutId = setTimeout(() => {
+        authenticateGameCenter(3, 2000) // Fewer retries, longer delay
+          .then(profile => {
+            console.log('[App] Re-authentication result:', JSON.stringify(profile, null, 2));
+            if (isMounted && !profile.isGuest) {
+              console.log('[App] ✓ Re-authentication successful:', profile.displayName);
+              setPlayerProfile(profile);
+            } else if (isMounted) {
+              console.warn('[App] Re-authentication still returned Guest');
+            }
+          })
+          .catch(err => {
+            console.error('[App] Re-authentication error:', err?.message || err);
+          });
+      }, 1000);
+
+      return () => {
+        isMounted = false;
+        clearTimeout(timeoutId);
+      };
+    }
+  }, [currentScreen, playerProfile?.isGuest]);
 
   const cleanupMatchChannel = () => {
     if (matchChannelRef.current) {
