@@ -13,15 +13,33 @@ import {
 export default function SearchScreen({ onSubmit, error, mode = 'classic', onChangeMode }) {
   const [topic, setTopic] = useState('');
   const [isValid, setIsValid] = useState(false);
-  const modeLabel = mode === 'practice' ? 'Practice' : mode === 'multiplayer' ? 'Multiplayer' : 'Classic';
-  const modeDescription = mode === 'practice'
-    ? 'Stopwatch tracks how long you take to solve.'
-    : mode === 'multiplayer'
-      ? 'Compete live with an opponent via Game Center.'
-      : 'No timer - take your time and enjoy the puzzle.';
+  const modeLabel = mode === 'practice'
+    ? 'Practice'
+    : mode === 'shuffle'
+      ? 'Shuffle'
+      : mode === 'multiplayer'
+        ? 'Multiplayer'
+        : 'Classic';
+  const modeDescription = (() => {
+    if (mode === 'practice') {
+      return 'Stopwatch tracks how long you take to solve.';
+    }
+    if (mode === 'shuffle') {
+      return 'Letters scramble with each new puzzle.';
+    }
+    if (mode === 'multiplayer') {
+      return 'Compete live with an opponent via Game Center.';
+    }
+    return 'No timer - take your time and enjoy the puzzle.';
+  })();
   const canChangeMode = typeof onChangeMode === 'function';
 
-  const buttonLabel = mode === 'multiplayer' ? 'Find Match (VS)' : 'Generate Word Search';
+  const buttonLabel =
+    mode === 'multiplayer'
+      ? 'Find Match (VS)'
+      : mode === 'shuffle'
+        ? 'Generate Shuffle Puzzle'
+        : 'Generate Word Search';
 
   const handleTextChange = (text) => {
     setTopic(text);

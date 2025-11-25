@@ -10,14 +10,13 @@ import {
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
-const LETTERS = 'WORDSEARCH'.split('');
+// Letters to spell "WordSearchR"
+const LETTERS = 'WordSearchR'.split('');
 
 export default function SplashScreen({ onComplete }) {
   const [reducedMotion, setReducedMotion] = useState(false);
   const [showTitle, setShowTitle] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
   const titleOpacity = useRef(new Animated.Value(0)).current;
-  const searchOpacity = useRef(new Animated.Value(0)).current;
   const hasStarted = useRef(false);
 
   useEffect(() => {
@@ -44,23 +43,14 @@ export default function SplashScreen({ onComplete }) {
 
       setTimeout(() => {
         handleComplete();
-      }, 2000);
+      }, 4000);
     }
   }, [reducedMotion]);
 
   const handleComplete = () => {
     if (hasStarted.current) return;
     hasStarted.current = true;
-
-    Animated.timing(searchOpacity, {
-      toValue: 1,
-      duration: 400,
-      useNativeDriver: true,
-    }).start();
-
-    setTimeout(() => {
-      onComplete();
-    }, 400);
+    onComplete();
   };
 
   const renderLetterRain = () => {
@@ -91,7 +81,7 @@ export default function SplashScreen({ onComplete }) {
       <FallingLetter 
         key={index} 
         letter={letter} 
-        delay={index * 100}
+        delay={index * 150}
       />
     ));
   };
@@ -119,19 +109,21 @@ export default function SplashScreen({ onComplete }) {
 }
 
 function FallingLetter({ letter, delay }) {
-  const translateY = useRef(new Animated.Value(-50)).current;
+  // Start from above screen with padding to avoid status bar
+  const TOP_PADDING = 80;
+  const translateY = useRef(new Animated.Value(-TOP_PADDING)).current;
 
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
         Animated.timing(translateY, {
           toValue: height + 50,
-          duration: 2000 + Math.random() * 1000,
+          duration: 3500 + Math.random() * 1500,
           delay,
           useNativeDriver: true,
         }),
         Animated.timing(translateY, {
-          toValue: -50,
+          toValue: -TOP_PADDING,
           duration: 0,
           useNativeDriver: true,
         }),

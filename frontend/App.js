@@ -6,9 +6,11 @@ import SplashScreen from './src/screens/SplashScreen';
 import SearchScreen from './src/screens/SearchScreen';
 import LoadingScreen from './src/screens/LoadingScreen';
 import ModeSelectScreen from './src/screens/ModeSelectScreen';
+import MiniGamesScreen from './src/screens/MiniGamesScreen';
 import MultiplayerQuickMatchScreen from './src/screens/MultiplayerQuickMatchScreen';
 import MatchResultScreen from './src/screens/MatchResultScreen';
 import WordSearchScreen from './src/screens/WordSearchScreen';
+import WordBurst from './src/components/wordBurst';
 import { API_ENDPOINTS } from './src/config';
 import { supabase } from './src/lib/supabase';
 import { authenticateGameCenter } from './src/services/gameCenter';
@@ -535,6 +537,15 @@ export default function App() {
     }
   };
 
+  const handleMiniGames = async () => {
+    await cancelPendingMatch();
+    setSearchTopic('');
+    setPuzzleData(null);
+    setError(null);
+    setLoading(false);
+    setCurrentScreen('minigames');
+  };
+
   const handleChangeMode = async () => {
     await cancelPendingMatch();
     setSearchTopic('');
@@ -585,10 +596,23 @@ export default function App() {
       {currentScreen === 'modeselect' && (
         <ModeSelectScreen
           onClassic={() => handleModeSelect('classic')}
-          onPractice={() => handleModeSelect('practice')}
+          onMiniGames={handleMiniGames}
           onMultiplayer={() => handleModeSelect('multiplayer')}
           onBack={canModeSelectGoBack ? handleModeSelectBack : undefined}
         />
+      )}
+
+      {currentScreen === 'minigames' && (
+        <MiniGamesScreen
+          onPractice={() => handleModeSelect('practice')}
+          onShuffle={() => handleModeSelect('shuffle')}
+          onWordBurst={() => setCurrentScreen('wordburst')}
+          onBack={() => setCurrentScreen('modeselect')}
+        />
+      )}
+
+      {currentScreen === 'wordburst' && (
+        <WordBurst onBack={() => setCurrentScreen('minigames')} />
       )}
 
       {currentScreen === 'multiplayer' && (

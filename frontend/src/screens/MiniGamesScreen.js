@@ -1,12 +1,7 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
-export default function ModeSelectScreen({ onClassic, onMiniGames, onMultiplayer, onBack }) {
+export default function MiniGamesScreen({ onPractice, onShuffle, onWordBurst, onBack }) {
   return (
     <View style={styles.container}>
       {onBack && (
@@ -15,40 +10,40 @@ export default function ModeSelectScreen({ onClassic, onMiniGames, onMultiplayer
         </TouchableOpacity>
       )}
       <View style={styles.content}>
-        <Text style={styles.title}>Choose Your Mode</Text>
-        <Text style={styles.subtitle}>Pick how you'd like to play</Text>
-        
+        <Text style={styles.title}>Mini Games</Text>
+        <Text style={styles.subtitle}>Pick a quick challenge</Text>
+
         <View style={styles.buttonContainer}>
           <TouchableOpacity
-            style={styles.button}
-            onPress={onClassic}
-            accessibilityLabel="Play classic mode"
-          >
-            <Text style={styles.buttonText}>Classic</Text>
-            <Text style={styles.buttonDescription}>
-              Take your time and find all words
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
             style={[styles.button, styles.practiceButton]}
-            onPress={onMiniGames}
-            accessibilityLabel="Open mini games menu"
+            onPress={onPractice}
+            accessibilityLabel="Practice mode"
           >
-            <Text style={styles.buttonText}>Mini Games</Text>
+            <Text style={styles.buttonText}>Practice Mode</Text>
             <Text style={styles.buttonDescription}>
-              Practice mode + Shuffle challenge
+              Stopwatch challenge with your topic
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.button, styles.multiplayerButton]}
-            onPress={onMultiplayer}
-            accessibilityLabel="Play live multiplayer"
+            style={[styles.button, styles.shuffleButton]}
+            onPress={onShuffle}
+            accessibilityLabel="Shuffle mini game"
           >
-            <Text style={styles.buttonText}>Multiplayer</Text>
+            <Text style={styles.buttonText}>Shuffle</Text>
             <Text style={styles.buttonDescription}>
-              Challenge a live opponent (Game Center)
+              Letters scramble as you find words
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.button, styles.wordBurstButton]}
+            onPress={onWordBurst}
+            accessibilityLabel="Word Burst mini game"
+          >
+            <Text style={styles.buttonText}>Word Burst</Text>
+            <Text style={styles.buttonDescription}>
+              Swap letters to form words and score points
             </Text>
           </TouchableOpacity>
         </View>
@@ -99,9 +94,8 @@ const styles = StyleSheet.create({
   },
   button: {
     width: '100%',
-    height: 80,
-    backgroundColor: '#000000',
-    borderRadius: 12,
+    minHeight: 90,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -109,19 +103,23 @@ const styles = StyleSheet.create({
   practiceButton: {
     backgroundColor: '#1976D2',
   },
-  multiplayerButton: {
-    backgroundColor: '#1B5E20',
+  shuffleButton: {
+    backgroundColor: '#028174',
+  },
+  wordBurstButton: {
+    backgroundColor: '#E91E63',
   },
   buttonText: {
     color: '#FFFFFF',
     fontSize: 24,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
+    marginBottom: 6,
+    textAlign: 'center',
   },
   buttonDescription: {
     color: '#FFFFFF',
     fontSize: 14,
-    opacity: 0.9,
+    opacity: 0.95,
     textAlign: 'center',
   },
 });

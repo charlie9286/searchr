@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GRID_HORIZONTAL_PADDING = 32; // Padding on each side of the grid
+const GRID_HORIZONTAL_PADDING = 16; // Padding on each side of the grid
 
 // Renders a word search grid. Highlights words in foundWords using placements.
 export default function WordSearchGrid({ grid, placements, foundWords, opponentFoundWords, onWordFound, scrollViewRef }) {
@@ -13,20 +13,30 @@ export default function WordSearchGrid({ grid, placements, foundWords, opponentF
   const isDraggingRef = useRef(false);
   const establishedDirectionRef = useRef(null);
 
+  const notifyWordFound = useCallback((word) => {
+    if (typeof onWordFound !== 'function') return;
+    requestAnimationFrame(() => {
+      onWordFound(word);
+    });
+  }, [onWordFound]);
+
   // Calculate cell size based on available screen width
   const cellSize = useMemo(() => {
-    const availableWidth = SCREEN_WIDTH - GRID_HORIZONTAL_PADDING;
+    const availableWidth = SCREEN_WIDTH - GRID_HORIZONTAL_PADDING * 2;
     const calculatedSize = Math.floor(availableWidth / numCols);
-    return Math.max(20, Math.min(calculatedSize, 32)); // Min 20px, Max 32px
+    return Math.max(20, Math.min(calculatedSize, 40)); // Min 20px, Max 40px for better touch targets
   }, [numCols]);
 
   const CELL = cellSize;
+  const letterFontSize = useMemo(() => Math.max(14, Math.min(CELL * 0.6, 26)), [CELL]);
 
   const getCellFromCoordinates = (x, y) => {
-    // Account for container padding (paddingVertical: 8)
+    // Account for container padding (paddingVertical: 8, paddingHorizontal: GRID_HORIZONTAL_PADDING)
     const relativeY = y - 8;
+    const relativeX = x - GRID_HORIZONTAL_PADDING;
+    if (relativeY < 0 || relativeX < 0) return null;
     const row = Math.floor(relativeY / CELL);
-    const col = Math.floor(x / CELL);
+    const col = Math.floor(relativeX / CELL);
     
     // Clamp to valid grid bounds
     if (row >= 0 && row < numRows && col >= 0 && col < numCols) {
@@ -175,9 +185,7 @@ export default function WordSearchGrid({ grid, placements, foundWords, opponentF
           }
         }
         if (match) {
-          if (onWordFound) {
-            onWordFound(word);
-          }
+          notifyWordFound(word);
           return;
         }
       }
@@ -198,9 +206,7 @@ export default function WordSearchGrid({ grid, placements, foundWords, opponentF
           }
         }
         if (match) {
-          if (onWordFound) {
-            onWordFound(word);
-          }
+          notifyWordFound(word);
           return;
         }
       }
@@ -266,7 +272,7 @@ export default function WordSearchGrid({ grid, placements, foundWords, opponentF
                 pointerEvents="none"
               >
                 <Text style={[
-                  styles.letter, 
+                  [styles.letter, { fontSize: letterFontSize }], 
                   highlighted && styles.letterHighlighted,
                   opponentHighlighted && styles.letterOpponent,
                   selected && styles.letterSelected
@@ -284,6 +290,7 @@ const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
     paddingVertical: 8,
+    paddingHorizontal: GRID_HORIZONTAL_PADDING,
   },
   row: {
     flexDirection: 'row',
