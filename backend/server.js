@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const crypto = require('node:crypto');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+// const { GoogleGenerativeAI } = require('@google/generative-ai'); // Commented out - using OpenRouter instead
 const WordSearchGenerator = require('./wordSearchGenerator');
 const { supabase } = require('./supabaseClient');
 require('dotenv').config();
@@ -32,9 +32,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Initialize Gemini AI
-// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY );
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Initialize OpenRouter API (replacing Gemini)
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
+const OPENROUTER_MODEL = 'x-ai/grok-4.1-fast'; // OpenRouter model identifier for Grok 4.1 Fast (free)
+
+// Commented out Gemini initialization
+// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 
 const PROMPT_TEMPLATE = (topic) => `Generate words for a word search puzzle about the topic: "${topic}".
@@ -93,23 +96,54 @@ Uppercase A–Z only? YES
 
 No duplicates/hyphens/spaces? YES`;
 
-async function generateModel() {
-  try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
-    console.log('Using model: gemini-2.0-flash-exp');
-    return model;
-  } catch (err) {
-    console.warn('Failed to load gemini-2.0-flash-exp, falling back:', err.message);
+// Commented out Gemini model generation
+// async function generateModel() {
+//   try {
+//     const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+//     console.log('Using model: gemini-2.0-flash');
+//     return model;
+//   } catch (err) {
+//     console.warn('Failed to load gemini-2.0-flash, falling back:', err.message);
+//   }
+//
+//   try {
+//     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' });
+//     console.log('Using model: gemini-1.5-flash-latest (fallback)');
+//     return model;
+//   } catch (err) {
+//     console.error('Failed to initialize any Gemini model:', err.message);
+//     throw new Error('Gemini API not available. Please check your API key.');
+//   }
+// }
+
+// OpenRouter API call function
+async function callOpenRouter(prompt) {
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://wordsearch.app', // Optional: for OpenRouter analytics
+      'X-Title': 'Word Search Generator', // Optional: for OpenRouter analytics
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} - ${errorText}`);
   }
 
-  try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    console.log('Using model: gemini-1.5-flash (fallback)');
-    return model;
-  } catch (err) {
-    console.error('Failed to initialize any Gemini model:', err.message);
-    throw new Error('Gemini API not available. Please check your API key.');
-  }
+  const data = await response.json();
+  return data.choices[0]?.message?.content || '';
 }
 
 async function generateWordsForTopic(topic) {
@@ -117,48 +151,49 @@ async function generateWordsForTopic(topic) {
     throw new Error('Topic must be at least 3 characters');
   }
 
-  const model = await generateModel();
+  // Commented out Gemini model call
+  // const model = await generateModel();
   const prompt = PROMPT_TEMPLATE(topic);
 
-  const result = await model.generateContent(prompt);
-  const text = (await result.response).text();
-  console.log('Gemini word search response:', text.substring(0, 300));
-
+  // Using OpenRouter API instead of Gemini
+  const text = await callOpenRouter(prompt);
+  console.log('OpenRouter word search response:', text.substring(0, 300));
+      
   let words = [];
 
-  const jsonMatch = text.match(/\{[\s\S]*\}/);
-  if (jsonMatch) {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
     try {
-      const payload = JSON.parse(jsonMatch[0]);
-      words = payload.words || [];
-      console.log('Parsed words:', words.length, words);
+        const payload = JSON.parse(jsonMatch[0]);
+        words = payload.words || [];
+        console.log('Parsed words:', words.length, words);
     } catch (err) {
       console.warn('Failed to parse JSON response, falling back to regex extraction:', err.message);
     }
   }
 
   if (!words || words.length === 0) {
-    const wordMatches = text.match(/\b[A-Z]{3,8}\b/g);
-    if (wordMatches && wordMatches.length > 0) {
+        const wordMatches = text.match(/\b[A-Z]{3,8}\b/g);
+        if (wordMatches && wordMatches.length > 0) {
       words = wordMatches.slice(0, 12);
-      console.log('Extracted words from text:', words);
-    }
-  }
-
-  if (!words || words.length === 0) {
-    throw new Error('No words found in response');
-  }
-
+          console.log('Extracted words from text:', words);
+        }
+      }
+      
+      if (!words || words.length === 0) {
+        throw new Error('No words found in response');
+      }
+      
   words = words
     .map(w => String(w).toUpperCase().trim())
     .filter(word => word.length >= 3 && word.length <= 8 && /^[A-Z]+$/.test(word))
     .slice(0, 12);
 
-  if (words.length === 0) {
-    throw new Error('No valid words found after filtering');
-  }
-
-  console.log(`Successfully generated ${words.length} words for topic: ${topic}`);
+      if (words.length === 0) {
+        throw new Error('No valid words found after filtering');
+      }
+      
+      console.log(`Successfully generated ${words.length} words for topic: ${topic}`);
   return words;
 }
 
@@ -176,7 +211,8 @@ async function selectQuickMatchTopic(recentTopics = []) {
     .map(topic => (typeof topic === 'string' ? topic.toUpperCase() : ''))
     .filter(Boolean);
 
-  const model = await generateModel();
+  // Commented out Gemini model call
+  // const model = await generateModel();
   const exclusionList = exclusions.length > 0
     ? exclusions.map(topic => `"${topic}"`).join(', ')
     : '[]';
@@ -205,8 +241,8 @@ Return EXACTLY ONE topic that follows ALL rules:
 Now respond with the JSON only.`;
 
   try {
-    const result = await model.generateContent(prompt);
-    const text = (await result.response).text();
+    // Using OpenRouter API instead of Gemini
+    const text = await callOpenRouter(prompt);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON detected in topic response');
@@ -632,9 +668,9 @@ app.get('/api/multiplayer/status', async (req, res) => {
 // For Vercel serverless, export the app directly
 // For local development, start the server
 if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 }
 
 module.exports = app;
