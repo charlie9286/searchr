@@ -33,7 +33,9 @@ app.get('/health', (req, res) => {
 });
 
 // Initialize Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'AIzaSyDYxEnFEporiwbK_27wYnv-2zP2McQJVw4');
+// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY );
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
 
 const PROMPT_TEMPLATE = (topic) => `Generate words for a word search puzzle about the topic: "${topic}".
 

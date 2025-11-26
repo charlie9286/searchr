@@ -17,15 +17,20 @@ export default function SearchScreen({ onSubmit, error, mode = 'classic', onChan
     ? 'Practice'
     : mode === 'shuffle'
       ? 'Shuffle'
-      : mode === 'multiplayer'
-        ? 'Multiplayer'
-        : 'Classic';
+      : mode === 'zigzag'
+        ? 'Zig Zag'
+        : mode === 'multiplayer'
+          ? 'Multiplayer'
+          : 'Classic';
   const modeDescription = (() => {
     if (mode === 'practice') {
       return 'Stopwatch tracks how long you take to solve.';
     }
     if (mode === 'shuffle') {
       return 'Letters scramble with each new puzzle.';
+    }
+    if (mode === 'zigzag') {
+      return 'Connect adjacent letters to form words.';
     }
     if (mode === 'multiplayer') {
       return 'Compete live with an opponent via Game Center.';
@@ -39,7 +44,9 @@ export default function SearchScreen({ onSubmit, error, mode = 'classic', onChan
       ? 'Find Match (VS)'
       : mode === 'shuffle'
         ? 'Generate Shuffle Puzzle'
-        : 'Generate Word Search';
+        : mode === 'zigzag'
+          ? 'Generate Zig Zag Puzzle'
+          : 'Generate Word Search';
 
   const handleTextChange = (text) => {
     setTopic(text);

@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 
-export default function MiniGamesScreen({ onPractice, onShuffle, onWordBurst, onBack }) {
+export default function MiniGamesScreen({ onPractice, onShuffle, onZigZag, onBack }) {
   return (
     <View style={styles.container}>
       {onBack && (
@@ -37,13 +37,13 @@ export default function MiniGamesScreen({ onPractice, onShuffle, onWordBurst, on
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.button, styles.wordBurstButton]}
-            onPress={onWordBurst}
-            accessibilityLabel="Word Burst mini game"
+            style={[styles.button, styles.zigZagButton]}
+            onPress={onZigZag}
+            accessibilityLabel="Zig Zag mini game"
           >
-            <Text style={styles.buttonText}>Word Burst</Text>
+            <Text style={styles.buttonText}>Zig Zag</Text>
             <Text style={styles.buttonDescription}>
-              Swap letters to form words and score points
+              Form words by connecting adjacent letters in any direction
             </Text>
           </TouchableOpacity>
         </View>
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
   shuffleButton: {
     backgroundColor: '#028174',
   },
-  wordBurstButton: {
+  zigZagButton: {
     backgroundColor: '#E91E63',
   },
   buttonText: {

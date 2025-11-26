@@ -248,7 +248,7 @@ export default function WordSearchScreen({
       <View style={styles.header}>
         <TouchableOpacity onPress={onBack} style={styles.headerButton}><Text style={styles.headerText}>← Back</Text></TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.title}>{topic}</Text>
+        <Text style={styles.title}>{topic}</Text>
           <Text style={styles.progress}>{progressText} words found</Text>
           {mode === 'practice' && timeElapsed !== null && (
             <Text style={styles.timer}>

@@ -10,7 +10,7 @@ import MiniGamesScreen from './src/screens/MiniGamesScreen';
 import MultiplayerQuickMatchScreen from './src/screens/MultiplayerQuickMatchScreen';
 import MatchResultScreen from './src/screens/MatchResultScreen';
 import WordSearchScreen from './src/screens/WordSearchScreen';
-import WordBurst from './src/components/wordBurst';
+import ZigZag from './src/components/zigZag';
 import { API_ENDPOINTS } from './src/config';
 import { supabase } from './src/lib/supabase';
 import { authenticateGameCenter } from './src/services/gameCenter';
@@ -478,7 +478,7 @@ export default function App() {
     if (gameMode === 'multiplayer') {
       setCurrentScreen('multiplayer');
     } else {
-      setCurrentScreen('search');
+    setCurrentScreen('search');
     }
     await cancelPendingMatch();
     setPuzzleData(null);
@@ -606,13 +606,13 @@ export default function App() {
         <MiniGamesScreen
           onPractice={() => handleModeSelect('practice')}
           onShuffle={() => handleModeSelect('shuffle')}
-          onWordBurst={() => setCurrentScreen('wordburst')}
+          onZigZag={() => setCurrentScreen('zigzag')}
           onBack={() => setCurrentScreen('modeselect')}
         />
       )}
 
-      {currentScreen === 'wordburst' && (
-        <WordBurst onBack={() => setCurrentScreen('minigames')} />
+      {currentScreen === 'zigzag' && (
+        <ZigZag onBack={() => setCurrentScreen('minigames')} />
       )}
 
       {currentScreen === 'multiplayer' && (
@@ -641,7 +641,7 @@ export default function App() {
           }}
         />
       )}
- 
+      
       {currentScreen === 'wordsearch' && puzzleData && (
         <WordSearchScreen
           puzzle={puzzleData}
