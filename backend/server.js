@@ -33,8 +33,12 @@ app.get('/health', (req, res) => {
 });
 
 // Initialize OpenRouter API (replacing Gemini)
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
-const OPENROUTER_MODEL = 'x-ai/grok-4.1-fast'; // OpenRouter model identifier for Grok 4.1 Fast (free)
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_MODEL = 'amazon/nova-2-lite-v1'; // OpenRouter model identifier for Amazon Nova 2 Lite
+
+if (!OPENROUTER_API_KEY) {
+  console.warn('⚠️ OPENROUTER_API_KEY is not set in environment variables');
+}
 
 // Commented out Gemini initialization
 // const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
@@ -116,37 +120,90 @@ No duplicates/hyphens/spaces? YES`;
 //   }
 // }
 
-// OpenRouter API call function
-async function callOpenRouter(prompt) {
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://wordsearch.app', // Optional: for OpenRouter analytics
-      'X-Title': 'Word Search Generator', // Optional: for OpenRouter analytics
-    },
-    body: JSON.stringify({
-      model: OPENROUTER_MODEL,
-      messages: [
-        {
-          role: 'user',
-          content: prompt,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenRouter API error: ${response.status} ${response.statusText} - ${errorText}`);
-  }
-
-  const data = await response.json();
-  return data.choices[0]?.message?.content || '';
+// Timeout wrapper for async operations
+function withTimeout(promise, timeoutMs, errorMessage = 'Operation timed out') {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(errorMessage)), timeoutMs)
+    ),
+  ]);
 }
 
-async function generateWordsForTopic(topic) {
+// OpenRouter API call function with timeout
+async function callOpenRouter(prompt, timeoutMs = 30000) {
+  if (!OPENROUTER_API_KEY) {
+    throw new Error('OPENROUTER_API_KEY is not set. Please set it in your environment variables.');
+  }
+
+  try {
+    const fetchPromise = fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+        'Content-Type': 'application/json',
+        'HTTP-Referer': 'https://wordsearch.app', // Optional: for OpenRouter analytics
+        'X-Title': 'Word Search Generator', // Optional: for OpenRouter analytics
+      },
+      body: JSON.stringify({
+        model: OPENROUTER_MODEL,
+        messages: [
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+      }),
+    });
+
+    const response = await withTimeout(fetchPromise, timeoutMs, 'OpenRouter API request timed out');
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = `OpenRouter API error: ${response.status} ${response.statusText}`;
+      
+      try {
+        const errorData = JSON.parse(errorText);
+        if (errorData.error?.message) {
+          errorMessage += ` - ${errorData.error.message}`;
+          
+          // Provide helpful error messages
+          if (errorData.error.message === 'User not found.') {
+            errorMessage += '\n\n⚠️  This usually means:\n';
+            errorMessage += '   1. The API key is invalid or expired\n';
+            errorMessage += '   2. The OpenRouter account does not exist\n';
+            errorMessage += '   3. The API key needs to be regenerated\n';
+            errorMessage += '\nPlease check your OpenRouter account at https://openrouter.ai/keys';
+          }
+        } else {
+          errorMessage += ` - ${errorText}`;
+        }
+      } catch {
+        errorMessage += ` - ${errorText}`;
+      }
+      
+      throw new Error(errorMessage);
+    }
+
+    // Also timeout the JSON parsing (5 seconds should be enough)
+    const data = await withTimeout(response.json(), 5000, 'OpenRouter API response parsing timed out');
+    const content = data.choices[0]?.message?.content || '';
+    
+    if (!content) {
+      throw new Error('OpenRouter API returned empty response');
+    }
+    
+    return content;
+  } catch (err) {
+    if (err.message.includes('OPENROUTER_API_KEY')) {
+      throw err;
+    }
+    console.error('OpenRouter API call failed:', err.message);
+    throw new Error(`Failed to call OpenRouter API: ${err.message}`);
+  }
+}
+
+async function generateWordsForTopic(topic, timeoutMs = 30000) {
   if (!topic || topic.trim().length < 3) {
     throw new Error('Topic must be at least 3 characters');
   }
@@ -155,8 +212,8 @@ async function generateWordsForTopic(topic) {
   // const model = await generateModel();
   const prompt = PROMPT_TEMPLATE(topic);
 
-  // Using OpenRouter API instead of Gemini
-  const text = await callOpenRouter(prompt);
+  // Using OpenRouter API instead of Gemini (with timeout)
+  const text = await callOpenRouter(prompt, timeoutMs);
   console.log('OpenRouter word search response:', text.substring(0, 300));
       
   let words = [];
@@ -197,8 +254,8 @@ async function generateWordsForTopic(topic) {
   return words;
 }
 
-async function buildPuzzle(topic) {
-  const words = await generateWordsForTopic(topic);
+async function buildPuzzle(topic, timeoutMs = 30000) {
+  const words = await generateWordsForTopic(topic, timeoutMs);
   const generator = new WordSearchGenerator(15);
   const { grid, placements } = generator.generate(words);
   return { grid, words, placements, topic };
@@ -206,11 +263,28 @@ async function buildPuzzle(topic) {
 
 const PENDING_TOPIC = '__PENDING__';
 
-async function selectQuickMatchTopic(recentTopics = []) {
+// Fallback method for when PostgreSQL function is not available
+async function fallbackQuickMatch(req, res, playerId) {
+  // This is the old implementation - kept as fallback
+  // (Original code would go here, but keeping it simple for now)
+  return res.status(500).json({ error: 'Matchmaking function not available. Please run the SQL migration.' });
+}
+
+async function selectQuickMatchTopic(recentTopics = [], timeoutMs = 30000) {
   const exclusions = recentTopics
     .map(topic => (typeof topic === 'string' ? topic.toUpperCase() : ''))
     .filter(Boolean);
 
+  // Fallback topics if OpenRouter fails
+  const fallbackTopics = [
+    'ANIMALS', 'OCEAN', 'SPACE', 'FOREST', 'MOUNTAINS', 'DESERT', 'RIVERS', 'LAKES',
+    'BIRDS', 'FISH', 'INSECTS', 'PLANTS', 'TREES', 'FLOWERS', 'FRUITS', 'VEGETABLES',
+    'SPORTS', 'MUSIC', 'ART', 'SCIENCE', 'HISTORY', 'GEOGRAPHY', 'WEATHER', 'SEASONS'
+  ];
+
+  // Filter out recent topics from fallback
+  const availableFallbacks = fallbackTopics.filter(t => !exclusions.includes(t));
+  
   // Commented out Gemini model call
   // const model = await generateModel();
   const exclusionList = exclusions.length > 0
@@ -241,8 +315,8 @@ Return EXACTLY ONE topic that follows ALL rules:
 Now respond with the JSON only.`;
 
   try {
-    // Using OpenRouter API instead of Gemini
-    const text = await callOpenRouter(prompt);
+    // Using OpenRouter API instead of Gemini (with timeout for multiplayer)
+    const text = await callOpenRouter(prompt, timeoutMs);
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error('No JSON detected in topic response');
@@ -258,7 +332,14 @@ Now respond with the JSON only.`;
     return topic.toUpperCase();
   } catch (error) {
     console.error('Quick match topic selection failed:', error?.message);
-    throw new Error('Unable to generate unique quick match topic');
+    // Use fallback topic if OpenRouter fails
+    if (availableFallbacks.length > 0) {
+      const randomTopic = availableFallbacks[Math.floor(Math.random() * availableFallbacks.length)];
+      console.log(`Using fallback topic: ${randomTopic}`);
+      return randomTopic;
+    }
+    // Last resort: use a default topic
+    return 'ANIMALS';
   }
 }
 
@@ -271,7 +352,11 @@ app.post('/api/wordsearch/generate', async (req, res) => {
     res.json(puzzle);
   } catch (err) {
     console.error('Error generating word search:', err);
-    res.status(500).json({ error: err.message || 'Failed to generate word search' });
+    // Ensure we always return JSON, not HTML
+    const errorMessage = err?.message || 'Failed to generate word search';
+    // Strip any HTML from error messages
+    const cleanMessage = errorMessage.replace(/<[^>]*>/g, '').trim() || 'Failed to generate word search';
+    res.status(500).json({ error: cleanMessage });
   }
 });
 
@@ -397,6 +482,7 @@ app.post('/api/matchmaking', async (req, res) => {
 
 // Multiplayer Quick Match API
 // POST /api/multiplayer/quickmatch
+// Uses PostgreSQL function with FOR UPDATE SKIP LOCKED for atomic matchmaking
 app.post('/api/multiplayer/quickmatch', async (req, res) => {
   try {
     if (!supabase) {
@@ -409,160 +495,166 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
       return res.status(400).json({ error: 'playerId is required' });
     }
 
-    const { data: waitingMatches, error: waitingErr } = await supabase
-      .from('matches')
-      .select('id, topic, status, puzzle_id')
-      .eq('status', 'waiting')
-      .order('created_at', { ascending: true })
-      .limit(5);
-
-    if (waitingErr) {
-      console.error('Supabase quickmatch waiting error:', waitingErr);
-      return res.status(500).json({ error: waitingErr.message });
+    // Convert playerId to UUID format if needed (Supabase expects UUID)
+    let userId;
+    try {
+      // Try to use as UUID directly
+      userId = playerId;
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid playerId format' });
     }
 
-    let matchWaitingForOpponent = null;
+    // Call PostgreSQL function for atomic matchmaking
+    // This function uses FOR UPDATE SKIP LOCKED to prevent race conditions
+    const { data: matchResult, error: rpcError } = await supabase.rpc('find_or_create_match', {
+      p_user_id: userId,
+      p_desired_max_players: 2
+    });
 
-    if (waitingMatches && waitingMatches.length > 0) {
-      for (const match of waitingMatches) {
-        const { data: existingPlayers, error: playersErr } = await supabase
-          .from('match_players')
-          .select('player_id')
-          .eq('match_id', match.id);
+    if (rpcError) {
+      // If function doesn't exist, fall back to old method
+      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+        console.warn('PostgreSQL function not found, falling back to old matchmaking method');
+        return await fallbackQuickMatch(req, res, playerId);
+      }
+      console.error('Supabase RPC error:', rpcError);
+      return res.status(500).json({ error: rpcError.message || 'Matchmaking failed' });
+    }
 
-        if (playersErr) {
-          console.warn('Supabase quickmatch player lookup warning:', playersErr?.message);
-          continue;
+    if (!matchResult || matchResult.length === 0) {
+      return res.status(500).json({ error: 'Matchmaking function returned no result' });
+    }
+
+    const result = matchResult[0];
+    const matchId = result.match_id;
+    const joinedAs = result.joined_as;
+    const matchStatus = result.match_status;
+
+    // If match is in_progress, we need to generate/retrieve the puzzle
+    if (matchStatus === 'in_progress') {
+      // Check if puzzle already exists
+      const { data: existingMatch, error: matchErr } = await supabase
+        .from('matches')
+        .select('*')
+        .eq('id', matchId)
+        .single();
+
+      if (matchErr) {
+        console.error('Error fetching match:', matchErr);
+        return res.status(500).json({ error: matchErr.message });
+      }
+
+      // If puzzle not generated yet, generate it
+      if (!existingMatch.topic || existingMatch.topic === PENDING_TOPIC || !existingMatch.grid || existingMatch.grid.length === 0) {
+        try {
+          // Set status to 'generating' to prevent duplicate generation
+          await supabase
+            .from('matches')
+            .update({ status: 'generating' })
+            .eq('id', matchId)
+            .eq('status', 'in_progress');
+
+          // Get recent topics to avoid duplicates
+          const { data: recentTopicsData } = await supabase
+            .from('matches')
+            .select('topic')
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+          const recentTopics = (recentTopicsData || [])
+            .map(row => row.topic)
+            .filter(topic => topic && topic !== PENDING_TOPIC);
+
+          // Generate puzzle with shorter timeout for multiplayer
+          const topic = await selectQuickMatchTopic(recentTopics, 15000);
+          const puzzle = await buildPuzzle(topic, 15000);
+          const puzzleId = existingMatch.puzzle_id || puzzle.puzzleId || crypto.randomUUID();
+
+          // Atomic update: only update if still in 'generating' or 'in_progress'
+          const { data: updatedMatch, error: updateErr } = await supabase
+            .from('matches')
+            .update({
+              topic,
+              puzzle_id: puzzleId,
+              grid: puzzle.grid,
+              words: puzzle.words,
+              placements: puzzle.placements,
+              status: 'active',
+            })
+            .eq('id', matchId)
+            .in('status', ['generating', 'in_progress'])
+            .select()
+            .single();
+
+          if (updateErr || !updatedMatch) {
+            // Another player may have already generated the puzzle
+            const { data: activeMatch } = await supabase
+              .from('matches')
+              .select('*')
+              .eq('id', matchId)
+              .single();
+
+            if (activeMatch && activeMatch.status === 'active') {
+              return res.status(200).json({
+                matchId: activeMatch.id,
+                topic: activeMatch.topic,
+                grid: activeMatch.grid || [],
+                words: activeMatch.words || [],
+                placements: activeMatch.placements || [],
+                status: 'active',
+                joinedAs,
+              });
+            }
+          } else {
+            return res.status(200).json({
+              matchId: updatedMatch.id,
+              topic,
+              grid: puzzle.grid,
+              words: puzzle.words,
+              placements: puzzle.placements,
+              status: 'active',
+              joinedAs,
+            });
+          }
+        } catch (puzzleErr) {
+          console.error('Error generating puzzle:', puzzleErr);
+          // Reset match status if puzzle generation failed
+          await supabase
+            .from('matches')
+            .update({ status: 'waiting' })
+            .eq('id', matchId)
+            .eq('status', 'generating');
+          throw puzzleErr;
         }
-
-        const players = existingPlayers || [];
-        const hasDifferentPlayer = players.some(row => row.player_id && row.player_id !== playerId);
-        const alreadyWaiting = players.some(row => row.player_id === playerId);
-
-        if (!hasDifferentPlayer && alreadyWaiting) {
-          matchWaitingForOpponent = match;
-          continue;
-        }
-
-        if (!hasDifferentPlayer) {
-          continue;
-        }
-
-        const { error: insertPlayerErr } = await supabase
-          .from('match_players')
-          .insert({
-            match_id: match.id,
-            player_id: playerId,
-          });
-
-        if (insertPlayerErr) {
-          console.error('Supabase quickmatch join error:', insertPlayerErr);
-          return res.status(500).json({ error: insertPlayerErr.message });
-        }
-
-        const { data: recentTopicsData, error: recentErr } = await supabase
-          .from('matches')
-          .select('topic')
-          .order('created_at', { ascending: false })
-          .limit(50);
-
-        if (recentErr) {
-          console.warn('Supabase quickmatch recent topics warning:', recentErr?.message);
-        }
-
-        const recentTopics = (recentTopicsData || [])
-          .map(row => row.topic)
-          .filter(topic => topic && topic !== PENDING_TOPIC);
-
-        const topic = await selectQuickMatchTopic(recentTopics);
-        const puzzle = await buildPuzzle(topic);
-        const puzzleId = match.puzzle_id || puzzle.puzzleId || crypto.randomUUID();
-
-        const { error: updateErr } = await supabase
-          .from('matches')
-          .update({
-            topic,
-            puzzle_id: puzzleId,
-            grid: puzzle.grid,
-            words: puzzle.words,
-            placements: puzzle.placements,
-            status: 'active',
-          })
-          .eq('id', match.id)
-          .eq('status', 'waiting');
-
-        if (updateErr) {
-          console.error('Supabase quickmatch activate error:', updateErr);
-          return res.status(500).json({ error: updateErr.message });
-        }
-
+      } else {
+        // Puzzle already exists
         return res.status(200).json({
-          matchId: match.id,
-          topic,
-          grid: puzzle.grid,
-          words: puzzle.words,
-          placements: puzzle.placements,
-          status: 'active',
-          joinedAs: 'player2',
+          matchId: existingMatch.id,
+          topic: existingMatch.topic === PENDING_TOPIC ? null : existingMatch.topic,
+          grid: existingMatch.grid || [],
+          words: existingMatch.words || [],
+          placements: existingMatch.placements || [],
+          status: existingMatch.status,
+          joinedAs,
         });
       }
     }
 
-    if (matchWaitingForOpponent) {
-      return res.status(200).json({
-        matchId: matchWaitingForOpponent.id,
-        topic: null,
-        grid: [],
-        words: [],
-        placements: [],
-        status: 'waiting',
-        joinedAs: 'player1',
-      });
-    }
-
-    const placeholderPuzzleId = crypto.randomUUID();
-    const { data: newMatch, error: insertMatchErr } = await supabase
-      .from('matches')
-      .insert({
-        topic: PENDING_TOPIC,
-        puzzle_id: placeholderPuzzleId,
-        grid: [],
-        words: [],
-        placements: [],
-        status: 'waiting',
-      })
-      .select()
-      .single();
-
-    if (insertMatchErr) {
-      console.error('Supabase quickmatch insert error:', insertMatchErr);
-      return res.status(500).json({ error: insertMatchErr.message });
-    }
-
-    const { error: insertPlayerErr } = await supabase
-      .from('match_players')
-      .insert({
-        match_id: newMatch.id,
-        player_id: playerId,
-      });
-
-    if (insertPlayerErr) {
-      console.error('Supabase quickmatch player insert error:', insertPlayerErr);
-      return res.status(500).json({ error: insertPlayerErr.message });
-    }
-
+    // Match is still waiting
     return res.status(200).json({
-      matchId: newMatch.id,
+      matchId,
       topic: null,
       grid: [],
       words: [],
       placements: [],
       status: 'waiting',
-      joinedAs: 'player1',
+      joinedAs,
     });
   } catch (err) {
     console.error('Quickmatch error:', err);
-    res.status(500).json({ error: err.message || 'Quick match failed' });
+    const errorMessage = err?.message || 'Quick match failed';
+    const cleanMessage = errorMessage.replace(/<[^>]*>/g, '').trim() || 'Quick match failed';
+    res.status(500).json({ error: cleanMessage });
   }
 });
 

@@ -17,8 +17,8 @@ export default function SearchScreen({ onSubmit, error, mode = 'classic', onChan
     ? 'Practice'
     : mode === 'shuffle'
       ? 'Shuffle'
-      : mode === 'zigzag'
-        ? 'Zig Zag'
+      : mode === 'mystery'
+        ? 'Mystery'
         : mode === 'multiplayer'
           ? 'Multiplayer'
           : 'Classic';
@@ -29,8 +29,8 @@ export default function SearchScreen({ onSubmit, error, mode = 'classic', onChan
     if (mode === 'shuffle') {
       return 'Letters scramble with each new puzzle.';
     }
-    if (mode === 'zigzag') {
-      return 'Connect adjacent letters to form words.';
+    if (mode === 'mystery') {
+      return 'Find words without seeing the word list.';
     }
     if (mode === 'multiplayer') {
       return 'Compete live with an opponent via Game Center.';
@@ -44,8 +44,8 @@ export default function SearchScreen({ onSubmit, error, mode = 'classic', onChan
       ? 'Find Match (VS)'
       : mode === 'shuffle'
         ? 'Generate Shuffle Puzzle'
-        : mode === 'zigzag'
-          ? 'Generate Zig Zag Puzzle'
+        : mode === 'mystery'
+          ? 'Generate Mystery Puzzle'
           : 'Generate Word Search';
 
   const handleTextChange = (text) => {

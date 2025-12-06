@@ -5,8 +5,9 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
+import LevelProgress from '../components/LevelProgress';
 
-export default function ModeSelectScreen({ onClassic, onMiniGames, onMultiplayer, onBack }) {
+export default function ModeSelectScreen({ onClassic, onMiniGames, onMultiplayer, onBack, userXP = 0 }) {
   return (
     <View style={styles.container}>
       {onBack && (
@@ -14,6 +15,12 @@ export default function ModeSelectScreen({ onClassic, onMiniGames, onMultiplayer
           <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
       )}
+      
+      {/* Level Progress centered at top */}
+      <View style={styles.levelContainer}>
+        <LevelProgress xp={userXP} />
+      </View>
+
       <View style={styles.content}>
         <Text style={styles.title}>Choose Your Mode</Text>
         <Text style={styles.subtitle}>Pick how you'd like to play</Text>
@@ -74,6 +81,12 @@ const styles = StyleSheet.create({
   backButtonText: {
     fontSize: 16,
     color: '#000000',
+  },
+  levelContainer: {
+    position: 'absolute',
+    top: 50,
+    alignSelf: 'center',
+    zIndex: 1,
   },
   content: {
     width: '100%',

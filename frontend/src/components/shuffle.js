@@ -309,35 +309,7 @@ export default function ShuffleGrid({
   const isCellSelected = (row, col) =>
     selectedPath.some((cell) => cell.row === row && cell.col === col);
 
-  useEffect(() => {
-    const normalizedGrid = normalizeGrid(grid);
-    const normalizedPlacements = placements || [];
-    const gridSignature = getGridSignature(grid);
-    const placementsSignature = getPlacementsSignature(placements);
-
-    const hasGridChanged = gridSignatureRef.current !== gridSignature;
-    const havePlacementsChanged =
-      placementsSignatureRef.current !== placementsSignature;
-
-    if (!hasGridChanged && !havePlacementsChanged) {
-      return;
-    }
-
-    gridSignatureRef.current = gridSignature;
-    placementsSignatureRef.current = placementsSignature;
-
-    baseGridRef.current = normalizedGrid;
-    basePlacementsRef.current = normalizedPlacements;
-    setRenderGrid(baseGridRef.current);
-    setRenderPlacements(basePlacementsRef.current);
-    if (shuffleTimerRef.current) {
-      clearInterval(shuffleTimerRef.current);
-    }
-    shuffleTimerRef.current = setInterval(() => {
-      applyTransformation();
-    }, 30000);
-  }, [grid, placements, applyTransformation]);
-
+  // Define applyTransformation BEFORE any useEffect that uses it
   const applyTransformation = useCallback(() => {
     if (shuffleTimerRef.current) {
       clearInterval(shuffleTimerRef.current);
@@ -390,6 +362,35 @@ export default function ShuffleGrid({
       applyTransformation();
     }, 30000);
   }, []);
+
+  useEffect(() => {
+    const normalizedGrid = normalizeGrid(grid);
+    const normalizedPlacements = placements || [];
+    const gridSignature = getGridSignature(grid);
+    const placementsSignature = getPlacementsSignature(placements);
+
+    const hasGridChanged = gridSignatureRef.current !== gridSignature;
+    const havePlacementsChanged =
+      placementsSignatureRef.current !== placementsSignature;
+
+    if (!hasGridChanged && !havePlacementsChanged) {
+      return;
+    }
+
+    gridSignatureRef.current = gridSignature;
+    placementsSignatureRef.current = placementsSignature;
+
+    baseGridRef.current = normalizedGrid;
+    basePlacementsRef.current = normalizedPlacements;
+    setRenderGrid(baseGridRef.current);
+    setRenderPlacements(basePlacementsRef.current);
+    if (shuffleTimerRef.current) {
+      clearInterval(shuffleTimerRef.current);
+    }
+    shuffleTimerRef.current = setInterval(() => {
+      applyTransformation();
+    }, 30000);
+  }, [grid, placements, applyTransformation]);
 
   useEffect(() => {
     if (!renderGrid?.length) return;

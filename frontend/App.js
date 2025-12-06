@@ -10,10 +10,12 @@ import MiniGamesScreen from './src/screens/MiniGamesScreen';
 import MultiplayerQuickMatchScreen from './src/screens/MultiplayerQuickMatchScreen';
 import MatchResultScreen from './src/screens/MatchResultScreen';
 import WordSearchScreen from './src/screens/WordSearchScreen';
-import ZigZag from './src/components/zigZag';
+import DisplayNameSetupScreen from './src/screens/DisplayNameSetupScreen';
+import Mystery from './src/components/mystery';
 import { API_ENDPOINTS } from './src/config';
 import { supabase } from './src/lib/supabase';
 import { authenticateGameCenter } from './src/services/gameCenter';
+import { getOrCreateUser, getUser } from './src/services/userService';
 
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState('splash');
@@ -30,6 +32,8 @@ export default function App() {
   const [isQuickMatchSearching, setIsQuickMatchSearching] = useState(false);
   const [quickMatchStatus, setQuickMatchStatus] = useState('Tap Find Opponent to start.');
   const [matchResult, setMatchResult] = useState(null);
+  const [userXP, setUserXP] = useState(0);
+  const [userData, setUserData] = useState(null);
 
   const matchChannelRef = useRef(null);
   const pendingPuzzleRef = useRef(null);
@@ -39,7 +43,7 @@ export default function App() {
 
     console.log('[App] Starting initial Game Center authentication...');
     authenticateGameCenter()
-      .then(profile => {
+      .then(async (profile) => {
         console.log('[App] Authentication result:', JSON.stringify(profile, null, 2));
         if (isMounted) {
           setPlayerProfile(profile);
@@ -47,6 +51,26 @@ export default function App() {
             console.warn('[App] ⚠️ Player authenticated as Guest - Game Center may not be available');
           } else {
             console.log('[App] ✓ Player authenticated as:', profile.displayName);
+            
+            // Get or create user in database
+            const user = await getOrCreateUser(profile);
+            if (user && isMounted) {
+              setUserData(user);
+              setUserXP(user.xp || 0);
+              const needsDisplayName = !user.display_name || user.display_name.trim() === '';
+              console.log('[App] ✓ User data loaded:', { 
+                xp: user.xp, 
+                level: user.level, 
+                displayName: user.display_name,
+                needsDisplayName 
+              });
+              
+              // If splash is already complete and user needs display name, navigate there
+              if (currentScreen !== 'splash' && needsDisplayName) {
+                console.log('[App] Navigating to display name setup');
+                setCurrentScreen('displayname');
+              }
+            }
           }
         }
       })
@@ -133,6 +157,44 @@ export default function App() {
 
   const handleSplashComplete = () => {
     setCanModeSelectGoBack(false);
+    // If userData is not loaded yet, wait for it
+    // Otherwise check if display name is needed
+    if (userData) {
+      if (!userData.display_name || userData.display_name.trim() === '') {
+        setCurrentScreen('displayname');
+      } else {
+        setCurrentScreen('modeselect');
+      }
+    } else {
+      // User data not loaded yet, go to mode select for now
+      // Will be redirected if display name is needed when userData loads
+      setCurrentScreen('modeselect');
+    }
+  };
+
+  // Check if user needs display name when userData changes or screen changes
+  useEffect(() => {
+    if (userData && playerProfile && !playerProfile.isGuest) {
+      const needsDisplayName = !userData.display_name || userData.display_name.trim() === '';
+      
+      if (needsDisplayName) {
+        // If we're on modeselect or splash just completed, redirect to display name
+        if (currentScreen === 'modeselect' || currentScreen === 'splash') {
+          console.log('[App] User needs display name, redirecting to setup screen');
+          // Small delay to ensure splash has completed
+          const timer = setTimeout(() => {
+            setCurrentScreen('displayname');
+          }, 100);
+          return () => clearTimeout(timer);
+        }
+      }
+    }
+  }, [userData, currentScreen, playerProfile]);
+
+  const handleDisplayNameComplete = (updatedUser) => {
+    // Update user data and navigate to mode select
+    setUserData(updatedUser);
+    setUserXP(updatedUser.xp || 0);
     setCurrentScreen('modeselect');
   };
 
@@ -184,7 +246,7 @@ export default function App() {
       return;
     }
 
-    setQuickMatchStatus('Finding an opponent…');
+    setQuickMatchStatus('Finding player…');
     let activeProfile = playerProfile;
     if (!activeProfile?.playerId) {
       try {
@@ -200,7 +262,7 @@ export default function App() {
     setOpponentFoundWords(() => new Set());
     setError(null);
     setIsQuickMatchSearching(true);
-    setQuickMatchStatus('Finding an opponent…');
+    setQuickMatchStatus('Finding player…');
     setMatchResult(null);
 
     try {
@@ -243,11 +305,21 @@ export default function App() {
       }
 
       if (data.status === 'active') {
-        setPuzzleData(pendingPuzzleRef.current);
-        setCurrentScreen('wordsearch');
-        setIsQuickMatchSearching(false);
+        // Check if puzzle is ready
+        if (pendingPuzzleRef.current && Array.isArray(pendingPuzzleRef.current.grid) && pendingPuzzleRef.current.grid.length > 0) {
+          setPuzzleData(pendingPuzzleRef.current);
+          setCurrentScreen('wordsearch');
+          setIsQuickMatchSearching(false);
+        } else {
+          // Puzzle is being generated
+          setQuickMatchStatus('Game loading…');
+          setIsQuickMatchSearching(true);
+        }
+      } else if (data.status === 'generating') {
+        setQuickMatchStatus('Game loading…');
+        setIsQuickMatchSearching(true);
       } else {
-        setQuickMatchStatus('Waiting for opponent to join…');
+        setQuickMatchStatus('Waiting for player to join…');
         setIsQuickMatchSearching(true);
       }
     } catch (err) {
@@ -300,14 +372,24 @@ export default function App() {
             placements: payload.new.placements,
             topic: payload.new.topic,
           };
-          pendingPuzzleRef.current = puzzle;
-          setPuzzleData(prev => prev || puzzle);
-          if (puzzle.topic) {
-            setSearchTopic(puzzle.topic);
+          
+          // Check if puzzle data is ready
+          if (puzzle && Array.isArray(puzzle.grid) && puzzle.grid.length > 0) {
+            pendingPuzzleRef.current = puzzle;
+            setPuzzleData(prev => prev || puzzle);
+            if (puzzle.topic) {
+              setSearchTopic(puzzle.topic);
+            }
+            setCurrentScreen('wordsearch');
+            setIsQuickMatchSearching(false);
+          } else {
+            // Puzzle still being generated
+            setQuickMatchStatus('Game loading…');
+            setIsQuickMatchSearching(true);
           }
-          setQuickMatchStatus('Opponent connected! Starting…');
-          setCurrentScreen('wordsearch');
-          setIsQuickMatchSearching(false);
+        } else if (newStatus === 'generating') {
+          setQuickMatchStatus('Game loading…');
+          setIsQuickMatchSearching(true);
         } else if (newStatus === 'finished') {
           setPendingMatch(prev => (prev ? { ...prev, status: 'finished' } : prev));
           setIsQuickMatchSearching(false);
@@ -376,24 +458,34 @@ export default function App() {
         const response = await fetch(url);
         const data = await response.json().catch(() => ({}));
 
-        if (!cancelled && response.ok && data.status === 'active') {
-          pendingPuzzleRef.current = {
-            grid: data.grid,
-            words: data.words,
-            placements: data.placements,
-            topic: data.topic,
-          };
+        if (!cancelled && response.ok) {
+          if (data.status === 'active') {
+            pendingPuzzleRef.current = {
+              grid: data.grid,
+              words: data.words,
+              placements: data.placements,
+              topic: data.topic,
+            };
 
-          setPendingMatch(prev => (prev ? { ...prev, status: 'active', topic: data.topic || prev.topic } : prev));
+            setPendingMatch(prev => (prev ? { ...prev, status: 'active', topic: data.topic || prev.topic } : prev));
 
-          if (pendingPuzzleRef.current) {
-            setSearchTopic(pendingPuzzleRef.current.topic || searchTopic);
-            setQuickMatchStatus('Opponent connected! Starting…');
-            setPuzzleData(pendingPuzzleRef.current);
-            setCurrentScreen('wordsearch');
-            setIsQuickMatchSearching(false);
+            // Check if puzzle data is ready
+            if (pendingPuzzleRef.current && Array.isArray(pendingPuzzleRef.current.grid) && pendingPuzzleRef.current.grid.length > 0) {
+              setSearchTopic(pendingPuzzleRef.current.topic || searchTopic);
+              setPuzzleData(pendingPuzzleRef.current);
+              setCurrentScreen('wordsearch');
+              setIsQuickMatchSearching(false);
+            } else {
+              // Puzzle still being generated
+              setQuickMatchStatus('Game loading…');
+              setIsQuickMatchSearching(true);
+            }
+            return;
+          } else if (data.status === 'generating') {
+            setQuickMatchStatus('Game loading…');
+            setIsQuickMatchSearching(true);
+            return;
           }
-          return;
         }
       } catch (err) {
         console.warn('Match status poll failed:', err?.message);
@@ -579,6 +671,13 @@ export default function App() {
       {currentScreen === 'splash' && (
         <SplashScreen onComplete={handleSplashComplete} />
       )}
+
+      {currentScreen === 'displayname' && playerProfile && !playerProfile.isGuest && (
+        <DisplayNameSetupScreen
+          userId={playerProfile.playerId}
+          onComplete={handleDisplayNameComplete}
+        />
+      )}
       
       {currentScreen === 'search' && (
         <SearchScreen
@@ -599,6 +698,7 @@ export default function App() {
           onMiniGames={handleMiniGames}
           onMultiplayer={() => handleModeSelect('multiplayer')}
           onBack={canModeSelectGoBack ? handleModeSelectBack : undefined}
+          userXP={userXP}
         />
       )}
 
@@ -606,13 +706,9 @@ export default function App() {
         <MiniGamesScreen
           onPractice={() => handleModeSelect('practice')}
           onShuffle={() => handleModeSelect('shuffle')}
-          onZigZag={() => setCurrentScreen('zigzag')}
+          onMystery={() => handleModeSelect('mystery')}
           onBack={() => setCurrentScreen('modeselect')}
         />
-      )}
-
-      {currentScreen === 'zigzag' && (
-        <ZigZag onBack={() => setCurrentScreen('minigames')} />
       )}
 
       {currentScreen === 'multiplayer' && (
@@ -642,7 +738,16 @@ export default function App() {
         />
       )}
       
-      {currentScreen === 'wordsearch' && puzzleData && (
+      {currentScreen === 'wordsearch' && puzzleData && gameMode === 'mystery' && (
+        <Mystery
+          puzzle={puzzleData}
+          topic={searchTopic}
+          onBack={handleBackToSearch}
+          onNewTopic={handleNewTopic}
+        />
+      )}
+
+      {currentScreen === 'wordsearch' && puzzleData && gameMode !== 'mystery' && (
         <WordSearchScreen
           puzzle={puzzleData}
           topic={searchTopic}
