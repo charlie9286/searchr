@@ -50,7 +50,7 @@ export default function SplashScreen({ onComplete }) {
   const handleComplete = () => {
     if (hasStarted.current) return;
     hasStarted.current = true;
-    onComplete();
+      onComplete();
   };
 
   const renderLetterRain = () => {

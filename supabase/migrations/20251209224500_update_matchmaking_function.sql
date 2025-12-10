@@ -1,5 +1,5 @@
--- PostgreSQL function for atomic matchmaking
--- Prevents double-counting same user; uses DISTINCT counts and explicit constraint in ON CONFLICT
+-- Update matchmaking function to prevent self-matches and double-counting
+-- Uses DISTINCT counts and explicit ON CONFLICT constraint targeting
 
 CREATE OR REPLACE FUNCTION public.find_or_create_match(
   p_user_id UUID,
@@ -130,3 +130,8 @@ BEGIN
     v_current_players;
 END;
 $function$;
+
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO anon;
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO service_role;
+
