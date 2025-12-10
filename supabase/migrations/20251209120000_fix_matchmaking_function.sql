@@ -1,13 +1,11 @@
--- PostgreSQL function for atomic matchmaking
--- This function handles the entire matchmaking flow in a single transaction
--- Uses FOR UPDATE SKIP LOCKED to prevent race conditions
---
--- Updated for new schema:
--- matches: id, puzzle_id, mode, status, created_by, created_at, started_at, ended_at
--- match_players: id, match_id, player_id, joined_at, team, time, result, xp_earned, coins_earned
--- No max_players, is_host, or status in match_players
+-- Fix matchmaking function with proper permissions
+-- This migration ensures the function is created correctly with SECURITY DEFINER and proper grants
 
-CREATE OR REPLACE FUNCTION find_or_create_match(
+-- First, drop the function if it exists (to recreate it)
+DROP FUNCTION IF EXISTS find_or_create_match(UUID, TEXT);
+
+-- Create the function with explicit schema (public)
+CREATE OR REPLACE FUNCTION public.find_or_create_match(
   p_user_id UUID,
   p_mode TEXT DEFAULT 'versus'
 )
@@ -16,7 +14,10 @@ RETURNS TABLE (
   joined_as TEXT,
   match_status TEXT,
   current_players INTEGER
-) AS $$
+) 
+SECURITY DEFINER
+LANGUAGE plpgsql
+AS $$
 DECLARE
   v_match_id UUID;
   v_current_players INTEGER;
@@ -28,17 +29,28 @@ BEGIN
   -- Try to find a waiting match (with row-level lock using FOR UPDATE SKIP LOCKED)
   -- This ensures only one request can process a match at a time
   -- For 2-player matches, we look for matches with exactly 1 player
-  SELECT m.id, COUNT(mp.id)::INTEGER
-  INTO v_match_id, v_current_players
+  -- First, find matches with exactly 1 player using a subquery to avoid GROUP BY with FOR UPDATE
+  SELECT m.id
+  INTO v_match_id
   FROM matches m
-  LEFT JOIN match_players mp ON mp.match_id = m.id
   WHERE m.status = 'waiting'
     AND m.mode = p_mode
-  GROUP BY m.id
-  HAVING COUNT(mp.id) = 1  -- Only matches with exactly 1 player (waiting for second)
+    AND (
+      SELECT COUNT(*)::INTEGER
+      FROM match_players mp
+      WHERE mp.match_id = m.id
+    ) = 1  -- Only matches with exactly 1 player (waiting for second)
   ORDER BY m.created_at ASC
   FOR UPDATE SKIP LOCKED
   LIMIT 1;
+  
+  -- If we found a match, get the player count
+  IF v_match_id IS NOT NULL THEN
+    SELECT COUNT(*)::INTEGER
+    INTO v_current_players
+    FROM match_players
+    WHERE match_id = v_match_id;
+  END IF;
   
   -- If we found a match
   IF v_match_id IS NOT NULL THEN
@@ -118,4 +130,10 @@ BEGIN
     'waiting',
     1;
 END;
-$$ LANGUAGE plpgsql;
+$$;
+
+-- Grant execute permission to authenticated users (or anon if needed)
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO anon;
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO service_role;
+

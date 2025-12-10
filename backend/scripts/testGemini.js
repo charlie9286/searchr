@@ -8,7 +8,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env') });
 // const key = process.env.GEMINI_API_KEY; // Commented out
 
 // OpenRouter API test
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = 'x-ai/grok-4.1-fast';
 
 async function testOpenRouter() {

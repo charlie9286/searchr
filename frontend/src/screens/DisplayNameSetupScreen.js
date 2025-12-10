@@ -100,9 +100,9 @@ export default function DisplayNameSetupScreen({ userId, onComplete }) {
   return (
     <View style={styles.container}>
       <View style={styles.content}>
-        <Text style={styles.title}>Choose Your Display Name</Text>
+        <Text style={styles.title}>Welcome! 👋</Text>
         <Text style={styles.subtitle}>
-          Pick a name that represents you. This will be visible to other players.
+          Choose a display name to get started. This will be visible to other players in multiplayer games.
         </Text>
 
         <View style={styles.inputContainer}>

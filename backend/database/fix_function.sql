@@ -1,13 +1,11 @@
--- PostgreSQL function for atomic matchmaking
--- This function handles the entire matchmaking flow in a single transaction
--- Uses FOR UPDATE SKIP LOCKED to prevent race conditions
---
--- Updated for new schema:
--- matches: id, puzzle_id, mode, status, created_by, created_at, started_at, ended_at
--- match_players: id, match_id, player_id, joined_at, team, time, result, xp_earned, coins_earned
--- No max_players, is_host, or status in match_players
+-- Fix script to ensure the matchmaking function is created correctly
+-- Run this in your Supabase SQL Editor
 
-CREATE OR REPLACE FUNCTION find_or_create_match(
+-- First, drop the function if it exists (to recreate it)
+DROP FUNCTION IF EXISTS find_or_create_match(UUID, TEXT);
+
+-- Create the function with explicit schema (public)
+CREATE OR REPLACE FUNCTION public.find_or_create_match(
   p_user_id UUID,
   p_mode TEXT DEFAULT 'versus'
 )
@@ -16,7 +14,10 @@ RETURNS TABLE (
   joined_as TEXT,
   match_status TEXT,
   current_players INTEGER
-) AS $$
+) 
+SECURITY DEFINER
+LANGUAGE plpgsql
+AS $$
 DECLARE
   v_match_id UUID;
   v_current_players INTEGER;
@@ -118,4 +119,17 @@ BEGIN
     'waiting',
     1;
 END;
-$$ LANGUAGE plpgsql;
+$$;
+
+-- Grant execute permission to authenticated users (or anon if needed)
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO anon;
+GRANT EXECUTE ON FUNCTION public.find_or_create_match(UUID, TEXT) TO service_role;
+
+-- Verify the function exists
+SELECT 
+  proname as function_name,
+  pg_get_function_identity_arguments(oid) as arguments
+FROM pg_proc
+WHERE proname = 'find_or_create_match';
+

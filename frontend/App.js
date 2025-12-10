@@ -51,25 +51,25 @@ export default function App() {
             console.warn('[App] ⚠️ Player authenticated as Guest - Game Center may not be available');
           } else {
             console.log('[App] ✓ Player authenticated as:', profile.displayName);
+          }
+          
+          // Get or create user in database (for both guest and authenticated users)
+          const user = await getOrCreateUser(profile);
+          if (user && isMounted) {
+            setUserData(user);
+            setUserXP(user.xp || 0);
+            const needsDisplayName = !user.display_name || user.display_name.trim() === '';
+            console.log('[App] ✓ User data loaded:', { 
+              xp: user.xp, 
+              level: user.level, 
+              displayName: user.display_name,
+              needsDisplayName 
+            });
             
-            // Get or create user in database
-            const user = await getOrCreateUser(profile);
-            if (user && isMounted) {
-              setUserData(user);
-              setUserXP(user.xp || 0);
-              const needsDisplayName = !user.display_name || user.display_name.trim() === '';
-              console.log('[App] ✓ User data loaded:', { 
-                xp: user.xp, 
-                level: user.level, 
-                displayName: user.display_name,
-                needsDisplayName 
-              });
-              
-              // If splash is already complete and user needs display name, navigate there
-              if (currentScreen !== 'splash' && needsDisplayName) {
-                console.log('[App] Navigating to display name setup');
-                setCurrentScreen('displayname');
-              }
+            // If splash is already complete and user needs display name, navigate there
+            if (currentScreen !== 'splash' && needsDisplayName) {
+              console.log('[App] Navigating to display name setup');
+              setCurrentScreen('displayname');
             }
           }
         }
@@ -77,9 +77,28 @@ export default function App() {
       .catch(err => {
         console.error('[App] Game Center auth error:', err?.message || err);
         if (isMounted) {
-          const guestProfile = { playerId: `guest-${Date.now()}`, displayName: 'Guest', isGuest: true };
+          const guestProfile = { playerId: `guest-${Date.now()}`, displayName: null, isGuest: true };
           setPlayerProfile(guestProfile);
           console.warn('[App] ⚠️ Falling back to Guest profile');
+          
+          // Still create user record for guest users
+          getOrCreateUser(guestProfile)
+            .then(user => {
+              if (user && isMounted) {
+                setUserData(user);
+                setUserXP(user.xp || 0);
+                const needsDisplayName = !user.display_name || user.display_name.trim() === '';
+                console.log('[App] ✓ Guest user data loaded:', { 
+                  xp: user.xp, 
+                  level: user.level, 
+                  displayName: user.display_name,
+                  needsDisplayName 
+                });
+              }
+            })
+            .catch(userErr => {
+              console.error('[App] Error creating guest user:', userErr);
+            });
         }
       });
 
@@ -174,20 +193,43 @@ export default function App() {
 
   // Check if user needs display name when userData changes or screen changes
   useEffect(() => {
-    if (userData && playerProfile && !playerProfile.isGuest) {
+    if (userData) {
       const needsDisplayName = !userData.display_name || userData.display_name.trim() === '';
       
       if (needsDisplayName) {
-        // If we're on modeselect or splash just completed, redirect to display name
+        // If we're on modeselect or splash, redirect to display name
         if (currentScreen === 'modeselect' || currentScreen === 'splash') {
-          console.log('[App] User needs display name, redirecting to setup screen');
+          console.log('[App] User needs display name, redirecting to setup screen', {
+            currentScreen,
+            display_name: userData.display_name,
+            userId: userData.id
+          });
           // Small delay to ensure splash has completed
           const timer = setTimeout(() => {
             setCurrentScreen('displayname');
           }, 100);
           return () => clearTimeout(timer);
         }
+      } else {
+        // User has display name, make sure we're not stuck on displayname screen
+        if (currentScreen === 'displayname') {
+          console.log('[App] User has display name, redirecting to mode select');
+          setCurrentScreen('modeselect');
+        }
       }
+    } else if (playerProfile && !playerProfile.isGuest) {
+      // If we have a player profile but no userData yet, try to get/create user
+      console.log('[App] Have player profile but no userData, attempting to get/create user');
+      getOrCreateUser(playerProfile)
+        .then(user => {
+          if (user) {
+            setUserData(user);
+            setUserXP(user.xp || 0);
+          }
+        })
+        .catch(err => {
+          console.error('[App] Error getting/creating user:', err);
+        });
     }
   }, [userData, currentScreen, playerProfile]);
 
@@ -254,8 +296,32 @@ export default function App() {
         setPlayerProfile(activeProfile);
       } catch (authErr) {
         console.warn('Game Center re-auth failed:', authErr?.message);
-        activeProfile = { playerId: `guest-${Date.now()}`, displayName: 'Guest', isGuest: true };
+        activeProfile = { playerId: `guest-${Date.now()}`, displayName: null, isGuest: true };
         setPlayerProfile(activeProfile);
+      }
+    }
+
+    // Ensure user exists in database before matchmaking
+    // Note: userData.id will be a UUID (even for guests), so we need to check differently
+    if (!userData) {
+      try {
+        console.log('[App] Creating/getting user before matchmaking...');
+        const user = await getOrCreateUser(activeProfile);
+        if (user) {
+          setUserData(user);
+          setUserXP(user.xp || 0);
+        } else {
+          setError('Failed to create user account. Please try again.');
+          setQuickMatchStatus('Failed to create user account.');
+          setIsQuickMatchSearching(false);
+          return;
+        }
+      } catch (userErr) {
+        console.error('[App] Error creating/getting user:', userErr);
+        setError('Failed to create user account. Please try again.');
+        setQuickMatchStatus('Failed to create user account.');
+        setIsQuickMatchSearching(false);
+        return;
       }
     }
 
@@ -272,7 +338,7 @@ export default function App() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          playerId: activeProfile.playerId,
+          playerId: userData?.id || activeProfile.playerId, // Use userData.id (UUID) if available
         }),
       });
 
@@ -672,9 +738,9 @@ export default function App() {
         <SplashScreen onComplete={handleSplashComplete} />
       )}
 
-      {currentScreen === 'displayname' && playerProfile && !playerProfile.isGuest && (
+      {currentScreen === 'displayname' && (userData || playerProfile) && (
         <DisplayNameSetupScreen
-          userId={playerProfile.playerId}
+          userId={userData?.id || playerProfile?.playerId}
           onComplete={handleDisplayNameComplete}
         />
       )}

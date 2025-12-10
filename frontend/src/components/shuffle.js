@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GRID_HORIZONTAL_PADDING = 16;
+const GRID_HORIZONTAL_PADDING = 8; // Halved for more space
 
 const normalizeGrid = (gridData = []) =>
   gridData.map((row) => {
@@ -80,7 +80,7 @@ export default function ShuffleGrid({
   );
 
   const getCellFromCoordinates = (x, y) => {
-    const relativeY = y - 8;
+    const relativeY = y - 4; // Halved vertical padding
     const relativeX = x - GRID_HORIZONTAL_PADDING;
     if (relativeY < 0 || relativeX < 0) return null;
     const row = Math.floor(relativeY / CELL);
@@ -455,7 +455,7 @@ export default function ShuffleGrid({
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4, // Halved vertical padding
     paddingHorizontal: GRID_HORIZONTAL_PADDING,
   },
   row: {

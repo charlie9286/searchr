@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const GRID_HORIZONTAL_PADDING = 16; // Padding on each side of the grid
+const GRID_HORIZONTAL_PADDING = 8; // Padding on each side of the grid (halved for more space)
 
 // Renders a word search grid. Highlights words in foundWords using placements.
 export default function WordSearchGrid({ grid, placements, foundWords, opponentFoundWords, onWordFound, scrollViewRef }) {
@@ -31,8 +31,8 @@ export default function WordSearchGrid({ grid, placements, foundWords, opponentF
   const letterFontSize = useMemo(() => Math.max(14, Math.min(CELL * 0.6, 26)), [CELL]);
 
   const getCellFromCoordinates = (x, y) => {
-    // Account for container padding (paddingVertical: 8, paddingHorizontal: GRID_HORIZONTAL_PADDING)
-    const relativeY = y - 8;
+    // Account for container padding (paddingVertical: 4, paddingHorizontal: GRID_HORIZONTAL_PADDING)
+    const relativeY = y - 4;
     const relativeX = x - GRID_HORIZONTAL_PADDING;
     if (relativeY < 0 || relativeX < 0) return null;
     const row = Math.floor(relativeY / CELL);
@@ -289,7 +289,7 @@ export default function WordSearchGrid({ grid, placements, foundWords, opponentF
 const styles = StyleSheet.create({
   container: {
     alignSelf: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4, // Halved vertical padding
     paddingHorizontal: GRID_HORIZONTAL_PADDING,
   },
   row: {

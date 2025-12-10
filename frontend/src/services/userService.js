@@ -6,6 +6,41 @@ import { validateUsername, sanitizeUsername, generateSafeUsername } from '../uti
  */
 
 /**
+ * Convert a guest ID to a valid UUID
+ * Uses a deterministic approach to generate a UUID v4-like string from guest ID
+ */
+function guestIdToUUID(guestId) {
+  // If it's already a valid UUID format, return it
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(guestId)) {
+    return guestId;
+  }
+  
+  // Generate a deterministic UUID from the guest ID string
+  // Create a simple hash from the string
+  let hash1 = 0;
+  let hash2 = 0;
+  for (let i = 0; i < guestId.length; i++) {
+    const char = guestId.charCodeAt(i);
+    hash1 = ((hash1 << 5) - hash1) + char;
+    hash1 = hash1 & hash1;
+    hash2 = ((hash2 << 3) - hash2) + char;
+    hash2 = hash2 & hash2;
+  }
+  
+  // Generate UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+  const h1 = Math.abs(hash1).toString(16).padStart(8, '0');
+  const h2 = Math.abs(hash2).toString(16).padStart(8, '0');
+  const h3 = Math.abs(hash1 ^ hash2).toString(16).padStart(8, '0');
+  const h4 = Math.abs(hash1 + hash2).toString(16).padStart(8, '0');
+  
+  // Format as UUID: 8-4-4-4-12
+  const uuid = `${h1.slice(0, 8)}-${h2.slice(0, 4)}-4${h3.slice(0, 3)}-${(Math.abs(hash1) % 4 + 8).toString(16)}${h4.slice(0, 3)}-${h1.slice(0, 4)}${h2.slice(0, 4)}${h3.slice(0, 4)}`;
+  
+  return uuid;
+}
+
+/**
  * Get or create user from Game Center profile
  * Validates and sanitizes display name
  */
@@ -22,24 +57,18 @@ export async function getOrCreateUser(gameCenterProfile) {
     return null;
   }
 
+  // Convert guest IDs to valid UUIDs
+  const userId = playerId.startsWith('guest-') ? guestIdToUUID(playerId) : playerId;
+
   try {
-    // Validate and sanitize display name
-    let safeDisplayName = displayName || 'Player';
-    const validation = validateUsername(safeDisplayName);
-    
-    if (!validation.valid) {
-      console.warn('Invalid username:', validation.reason);
-      safeDisplayName = generateSafeUsername(displayName || 'Player');
-      console.log('Generated safe username:', safeDisplayName);
-    } else {
-      safeDisplayName = sanitizeUsername(safeDisplayName);
-    }
+    // Don't auto-set display name - always set to null for new users
+    // User will set it themselves on the display name setup screen
 
     // Check if user exists
     const { data: existingUser, error: fetchError } = await supabase
       .from('users')
       .select('*')
-      .eq('id', playerId)
+      .eq('id', userId)
       .single();
 
     if (fetchError && fetchError.code !== 'PGRST116') { // PGRST116 = not found
@@ -58,7 +87,7 @@ export async function getOrCreateUser(gameCenterProfile) {
       const { data: updatedUser, error: updateError } = await supabase
         .from('users')
         .update(updates)
-        .eq('id', playerId)
+        .eq('id', userId)
         .select()
         .single();
 
@@ -78,7 +107,7 @@ export async function getOrCreateUser(gameCenterProfile) {
     const { data: newUser, error: createError } = await supabase
       .from('users')
       .insert({
-        id: playerId,
+        id: userId, // Use converted UUID for guest users
         display_name: null, // User will set this on first login
         xp: 0,
         level: 1,

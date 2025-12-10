@@ -265,9 +265,266 @@ const PENDING_TOPIC = '__PENDING__';
 
 // Fallback method for when PostgreSQL function is not available
 async function fallbackQuickMatch(req, res, playerId) {
-  // This is the old implementation - kept as fallback
-  // (Original code would go here, but keeping it simple for now)
-  return res.status(500).json({ error: 'Matchmaking function not available. Please run the SQL migration.' });
+  try {
+    // Convert playerId to UUID format if needed
+    let userId;
+    try {
+      userId = playerId;
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid playerId format' });
+    }
+
+    // Try to find a waiting match (with exactly 1 player)
+    const { data: waitingMatches, error: findErr } = await supabase
+      .from('matches')
+      .select('id, status, mode')
+      .eq('status', 'waiting')
+      .eq('mode', 'versus')
+      .order('created_at', { ascending: true })
+      .limit(10);
+
+    if (findErr) {
+      console.error('Error finding waiting match:', findErr);
+      return res.status(500).json({ error: findErr.message });
+    }
+
+    let matchId;
+    let joinedAs;
+    let matchStatus = 'waiting';
+
+    // Find a match with exactly 1 player
+    for (const match of waitingMatches || []) {
+      const { count } = await supabase
+        .from('match_players')
+        .select('*', { count: 'exact', head: true })
+        .eq('match_id', match.id);
+      
+      if (count === 1) {
+        matchId = match.id;
+        break;
+      }
+    }
+
+    if (matchId) {
+      // Found a waiting match - try to join it
+      // Check if player is already in this match
+      const { data: existingPlayer } = await supabase
+        .from('match_players')
+        .select('joined_at')
+        .eq('match_id', matchId)
+        .eq('player_id', userId)
+        .single();
+
+      if (existingPlayer) {
+        // Player already in match, return current state
+        const { data: matchData } = await supabase
+          .from('matches')
+          .select('status')
+          .eq('id', matchId)
+          .single();
+        
+        // Count players and determine player number
+        const { data: allPlayers } = await supabase
+          .from('match_players')
+          .select('player_id, joined_at')
+          .eq('match_id', matchId)
+          .order('joined_at', { ascending: true });
+
+        const playerIndex = allPlayers?.findIndex(p => p.player_id === userId) ?? -1;
+        
+        return res.status(200).json({
+          matchId,
+          joinedAs: playerIndex === 0 ? 'player1' : 'player2',
+          status: matchData?.status || 'waiting',
+          currentPlayers: allPlayers?.length || 1,
+        });
+      }
+
+      // Insert player into match
+      const { error: insertErr } = await supabase
+        .from('match_players')
+        .insert({
+          match_id: matchId,
+          player_id: userId,
+        });
+
+      if (insertErr) {
+        // If insert fails (e.g., match is full), create a new match
+        console.warn('Failed to join match, creating new one:', insertErr);
+        matchId = null;
+      } else {
+        // Check if match is now full (2 players)
+        const { count } = await supabase
+          .from('match_players')
+          .select('*', { count: 'exact', head: true })
+          .eq('match_id', matchId);
+
+        if (count >= 2) {
+          // Match is full, start it
+          await supabase
+            .from('matches')
+            .update({ 
+              status: 'in_progress',
+              started_at: new Date().toISOString()
+            })
+            .eq('id', matchId)
+            .eq('status', 'waiting');
+          matchStatus = 'in_progress';
+        }
+
+        joinedAs = 'player2';
+      }
+    }
+
+    // If no match found or couldn't join, create a new one
+    if (!matchId) {
+      const { data: newMatch, error: createErr } = await supabase
+        .from('matches')
+        .insert({
+          status: 'waiting',
+          mode: 'versus',
+          created_by: userId,
+        })
+        .select()
+        .single();
+
+      if (createErr) {
+        console.error('Error creating match:', createErr);
+        return res.status(500).json({ error: createErr.message });
+      }
+
+      matchId = newMatch.id;
+
+      // Insert player as first player
+      const { error: playerErr } = await supabase
+        .from('match_players')
+        .insert({
+          match_id: matchId,
+          player_id: userId,
+        });
+
+      if (playerErr) {
+        console.error('Error adding player to match:', playerErr);
+        return res.status(500).json({ error: playerErr.message });
+      }
+
+      joinedAs = 'player1';
+    }
+
+    // Handle puzzle generation if match is in_progress
+    if (matchStatus === 'in_progress') {
+      const { data: existingMatch } = await supabase
+        .from('matches')
+        .select('puzzle_id')
+        .eq('id', matchId)
+        .single();
+
+      if (existingMatch && !existingMatch.puzzle_id) {
+        try {
+          // Get recent topics from puzzles table
+          const { data: recentPuzzles } = await supabase
+            .from('puzzles')
+            .select('topic')
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+          const recentTopics = (recentPuzzles || [])
+            .map(row => row.topic)
+            .filter(topic => topic && topic !== PENDING_TOPIC);
+
+          const topic = await selectQuickMatchTopic(recentTopics, 15000);
+          const puzzle = await buildPuzzle(topic, 15000);
+          
+          // Generate unique puzzle code
+          const puzzleCode = `puzzle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+          // Create puzzle in puzzles table
+          const { data: newPuzzle, error: puzzleErr } = await supabase
+            .from('puzzles')
+            .insert({
+              topic,
+              puzzle_code: puzzleCode,
+              grid: puzzle.grid,
+              words: puzzle.words,
+              placements: puzzle.placements,
+              status: 'published',
+            })
+            .select()
+            .single();
+
+          if (puzzleErr || !newPuzzle) {
+            throw new Error(puzzleErr?.message || 'Failed to create puzzle');
+          }
+
+          // Update match with puzzle_id
+          const { data: updatedMatch } = await supabase
+            .from('matches')
+            .update({
+              puzzle_id: newPuzzle.id,
+              status: 'active',
+            })
+            .eq('id', matchId)
+            .eq('status', 'in_progress')
+            .select()
+            .single();
+
+          if (updatedMatch) {
+            return res.status(200).json({
+              matchId: updatedMatch.id,
+              topic,
+              grid: puzzle.grid,
+              words: puzzle.words,
+              placements: puzzle.placements,
+              status: 'active',
+              joinedAs,
+            });
+          }
+        } catch (puzzleErr) {
+          console.error('Error generating puzzle in fallback:', puzzleErr);
+          await supabase
+            .from('matches')
+            .update({ status: 'waiting' })
+            .eq('id', matchId)
+            .eq('status', 'in_progress');
+        }
+      } else if (existingMatch?.puzzle_id) {
+        // Puzzle already exists, fetch it
+        const { data: puzzle } = await supabase
+          .from('puzzles')
+          .select('topic, grid, words, placements')
+          .eq('id', existingMatch.puzzle_id)
+          .single();
+
+        if (puzzle) {
+          return res.status(200).json({
+            matchId,
+            topic: puzzle.topic,
+            grid: puzzle.grid,
+            words: puzzle.words,
+            placements: puzzle.placements,
+            status: 'active',
+            joinedAs,
+          });
+        }
+      }
+    }
+
+    // Return match info
+    return res.status(200).json({
+      matchId,
+      topic: null,
+      grid: [],
+      words: [],
+      placements: [],
+      status: matchStatus,
+      joinedAs,
+    });
+  } catch (err) {
+    console.error('Fallback quickmatch error:', err);
+    const errorMessage = err?.message || 'Fallback matchmaking failed';
+    const cleanMessage = errorMessage.replace(/<[^>]*>/g, '').trim() || 'Fallback matchmaking failed';
+    return res.status(500).json({ error: cleanMessage });
+  }
 }
 
 async function selectQuickMatchTopic(recentTopics = [], timeoutMs = 30000) {
@@ -508,15 +765,34 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
     // This function uses FOR UPDATE SKIP LOCKED to prevent race conditions
     const { data: matchResult, error: rpcError } = await supabase.rpc('find_or_create_match', {
       p_user_id: userId,
-      p_desired_max_players: 2
+      p_mode: 'versus'
     });
 
     if (rpcError) {
+      // Log the full error for debugging
+      console.error('Supabase RPC error details:', {
+        message: rpcError.message,
+        code: rpcError.code,
+        details: rpcError.details,
+        hint: rpcError.hint,
+        fullError: JSON.stringify(rpcError, null, 2)
+      });
+      
       // If function doesn't exist, fall back to old method
-      if (rpcError.message?.includes('function') || rpcError.code === '42883') {
+      // Only check for function-specific errors, not user validation errors
+      // Error code 42883 = function does not exist
+      // Error code P0001 = raised exception (like user not found)
+      const isFunctionNotFound = 
+        rpcError.code === '42883' || // function does not exist
+        (rpcError.message?.includes('function') && rpcError.message?.includes('does not exist') && !rpcError.message?.includes('User'));
+      
+      if (isFunctionNotFound) {
         console.warn('PostgreSQL function not found, falling back to old matchmaking method');
         return await fallbackQuickMatch(req, res, playerId);
       }
+      
+      // For other errors (like user not found), return the actual error
+      // This means the function exists but returned a validation error
       console.error('Supabase RPC error:', rpcError);
       return res.status(500).json({ error: rpcError.message || 'Matchmaking failed' });
     }
@@ -545,7 +821,7 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
       }
 
       // If puzzle not generated yet, generate it
-      if (!existingMatch.topic || existingMatch.topic === PENDING_TOPIC || !existingMatch.grid || existingMatch.grid.length === 0) {
+      if (!existingMatch.puzzle_id) {
         try {
           // Set status to 'generating' to prevent duplicate generation
           await supabase
@@ -554,31 +830,47 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
             .eq('id', matchId)
             .eq('status', 'in_progress');
 
-          // Get recent topics to avoid duplicates
-          const { data: recentTopicsData } = await supabase
-            .from('matches')
+          // Get recent topics from puzzles table to avoid duplicates
+          const { data: recentPuzzles } = await supabase
+            .from('puzzles')
             .select('topic')
             .order('created_at', { ascending: false })
             .limit(50);
 
-          const recentTopics = (recentTopicsData || [])
+          const recentTopics = (recentPuzzles || [])
             .map(row => row.topic)
             .filter(topic => topic && topic !== PENDING_TOPIC);
 
           // Generate puzzle with shorter timeout for multiplayer
           const topic = await selectQuickMatchTopic(recentTopics, 15000);
           const puzzle = await buildPuzzle(topic, 15000);
-          const puzzleId = existingMatch.puzzle_id || puzzle.puzzleId || crypto.randomUUID();
+          
+          // Generate unique puzzle code
+          const puzzleCode = `puzzle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+          // Create puzzle in puzzles table
+          const { data: newPuzzle, error: puzzleErr } = await supabase
+            .from('puzzles')
+            .insert({
+              topic,
+              puzzle_code: puzzleCode,
+              grid: puzzle.grid,
+              words: puzzle.words,
+              placements: puzzle.placements,
+              status: 'published',
+            })
+            .select()
+            .single();
+
+          if (puzzleErr || !newPuzzle) {
+            throw new Error(puzzleErr?.message || 'Failed to create puzzle');
+          }
 
           // Atomic update: only update if still in 'generating' or 'in_progress'
           const { data: updatedMatch, error: updateErr } = await supabase
             .from('matches')
             .update({
-              topic,
-              puzzle_id: puzzleId,
-              grid: puzzle.grid,
-              words: puzzle.words,
-              placements: puzzle.placements,
+              puzzle_id: newPuzzle.id,
               status: 'active',
             })
             .eq('id', matchId)
@@ -590,20 +882,29 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
             // Another player may have already generated the puzzle
             const { data: activeMatch } = await supabase
               .from('matches')
-              .select('*')
+              .select('puzzle_id')
               .eq('id', matchId)
               .single();
 
-            if (activeMatch && activeMatch.status === 'active') {
-              return res.status(200).json({
-                matchId: activeMatch.id,
-                topic: activeMatch.topic,
-                grid: activeMatch.grid || [],
-                words: activeMatch.words || [],
-                placements: activeMatch.placements || [],
-                status: 'active',
-                joinedAs,
-              });
+            if (activeMatch && activeMatch.puzzle_id) {
+              // Fetch the puzzle
+              const { data: puzzleData } = await supabase
+                .from('puzzles')
+                .select('topic, grid, words, placements')
+                .eq('id', activeMatch.puzzle_id)
+                .single();
+
+              if (puzzleData) {
+                return res.status(200).json({
+                  matchId: activeMatch.id,
+                  topic: puzzleData.topic,
+                  grid: puzzleData.grid || [],
+                  words: puzzleData.words || [],
+                  placements: puzzleData.placements || [],
+                  status: 'active',
+                  joinedAs,
+                });
+              }
             }
           } else {
             return res.status(200).json({
@@ -627,16 +928,24 @@ app.post('/api/multiplayer/quickmatch', async (req, res) => {
           throw puzzleErr;
         }
       } else {
-        // Puzzle already exists
-        return res.status(200).json({
-          matchId: existingMatch.id,
-          topic: existingMatch.topic === PENDING_TOPIC ? null : existingMatch.topic,
-          grid: existingMatch.grid || [],
-          words: existingMatch.words || [],
-          placements: existingMatch.placements || [],
-          status: existingMatch.status,
-          joinedAs,
-        });
+        // Puzzle already exists, fetch it
+        const { data: puzzle } = await supabase
+          .from('puzzles')
+          .select('topic, grid, words, placements')
+          .eq('id', existingMatch.puzzle_id)
+          .single();
+
+        if (puzzle) {
+          return res.status(200).json({
+            matchId: existingMatch.id,
+            topic: puzzle.topic,
+            grid: puzzle.grid || [],
+            words: puzzle.words || [],
+            placements: puzzle.placements || [],
+            status: existingMatch.status,
+            joinedAs,
+          });
+        }
       }
     }
 
