@@ -34,6 +34,7 @@ export default function App() {
   const [matchResult, setMatchResult] = useState(null);
   const [userXP, setUserXP] = useState(0);
   const [userData, setUserData] = useState(null);
+  const [displayNameDone, setDisplayNameDone] = useState(false);
 
   const matchChannelRef = useRef(null);
   const pendingPuzzleRef = useRef(null);
@@ -198,7 +199,7 @@ export default function App() {
       
       if (needsDisplayName) {
         // If we're on modeselect or splash, redirect to display name
-        if (currentScreen === 'modeselect' || currentScreen === 'splash') {
+        if (!displayNameDone && (currentScreen === 'modeselect' || currentScreen === 'splash')) {
           console.log('[App] User needs display name, redirecting to setup screen', {
             currentScreen,
             display_name: userData.display_name,
@@ -216,6 +217,7 @@ export default function App() {
           console.log('[App] User has display name, redirecting to mode select');
           setCurrentScreen('modeselect');
         }
+        setDisplayNameDone(true);
       }
     } else if (playerProfile && !playerProfile.isGuest) {
       // If we have a player profile but no userData yet, try to get/create user
@@ -237,6 +239,7 @@ export default function App() {
     // Update user data and navigate to mode select
     setUserData(updatedUser);
     setUserXP(updatedUser.xp || 0);
+    setDisplayNameDone(true);
     setCurrentScreen('modeselect');
   };
 
@@ -779,7 +782,7 @@ export default function App() {
 
       {currentScreen === 'multiplayer' && (
         <MultiplayerQuickMatchScreen
-          playerName={playerProfile?.displayName || 'Guest'}
+          playerName={userData?.display_name || playerProfile?.displayName || 'Guest'}
           onFindOpponent={handleQuickMatch}
           onCancel={handleChangeMode}
           isSearching={isQuickMatchSearching}

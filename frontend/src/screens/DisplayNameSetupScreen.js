@@ -14,10 +14,9 @@ import { supabase } from '../lib/supabase';
 export default function DisplayNameSetupScreen({ userId, onComplete }) {
   const [displayName, setDisplayName] = useState('');
   const [isValid, setIsValid] = useState(false);
-  const [isChecking, setIsChecking] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleTextChange = async (text) => {
+  const handleTextChange = (text) => {
     const sanitized = sanitizeUsername(text);
     setDisplayName(sanitized);
     setError(null);
@@ -28,34 +27,6 @@ export default function DisplayNameSetupScreen({ userId, onComplete }) {
 
     if (!validation.valid && sanitized.length > 0) {
       setError(validation.reason);
-    } else if (sanitized.length > 0) {
-      // Check if name is already taken
-      setIsChecking(true);
-      try {
-        const { data, error: checkError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('display_name', sanitized)
-          .limit(1);
-
-        if (checkError) {
-          console.error('Error checking display name:', checkError);
-          setError('Unable to verify name availability');
-          setIsValid(false);
-        } else if (data && data.length > 0) {
-          setError('This name is already taken');
-          setIsValid(false);
-        } else {
-          setError(null);
-          setIsValid(true);
-        }
-      } catch (err) {
-        console.error('Error checking display name:', err);
-        setError('Unable to verify name availability');
-        setIsValid(false);
-      } finally {
-        setIsChecking(false);
-      }
     }
   };
 
@@ -109,8 +80,8 @@ export default function DisplayNameSetupScreen({ userId, onComplete }) {
           <TextInput
             style={[
               styles.input,
-              error && !isValid && styles.inputError,
-              isValid && styles.inputValid,
+            error && !isValid && styles.inputError,
+            isValid && styles.inputValid,
             ]}
             placeholder="Enter your display name"
             placeholderTextColor="#999"
@@ -120,13 +91,8 @@ export default function DisplayNameSetupScreen({ userId, onComplete }) {
             autoCapitalize="words"
             autoCorrect={false}
             maxLength={20}
-            editable={!isChecking}
+          editable
           />
-          {isChecking && (
-            <View style={styles.checkingIndicator}>
-              <ActivityIndicator size="small" color="#1976D2" />
-            </View>
-          )}
         </View>
 
         {error && (
@@ -137,14 +103,14 @@ export default function DisplayNameSetupScreen({ userId, onComplete }) {
 
         {isValid && !error && displayName.length > 0 && (
           <View style={styles.successContainer}>
-            <Text style={styles.successText}>✓ This name is available!</Text>
+            <Text style={styles.successText}>✓ This name is valid.</Text>
           </View>
         )}
 
         <TouchableOpacity
-          style={[styles.submitButton, (!isValid || isChecking) && styles.submitButtonDisabled]}
+          style={[styles.submitButton, (!isValid) && styles.submitButtonDisabled]}
           onPress={handleSubmit}
-          disabled={!isValid || isChecking}
+          disabled={!isValid}
         >
           <Text style={styles.submitButtonText}>Continue</Text>
         </TouchableOpacity>

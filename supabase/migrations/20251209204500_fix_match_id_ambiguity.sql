@@ -1,6 +1,4 @@
--- PostgreSQL function for atomic matchmaking
--- Final fixed version: avoids GROUP BY with FOR UPDATE, checks user existence, and uses clear aliases
-
+-- Recreate matchmaking function to avoid ambiguous match_id and GROUP BY issues
 CREATE OR REPLACE FUNCTION public.find_or_create_match(
   p_user_id UUID,
   p_mode TEXT DEFAULT 'versus'
@@ -122,3 +120,4 @@ BEGIN
     1;
 END;
 $$;
+
