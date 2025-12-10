@@ -18,7 +18,6 @@ DECLARE
   v_match_id UUID;
   v_current_players INTEGER;
   v_match_status TEXT;
-  v_player_count INTEGER;
   v_user_exists BOOLEAN;
 BEGIN
   -- Ensure user exists
@@ -42,14 +41,6 @@ BEGIN
   FOR UPDATE SKIP LOCKED
   LIMIT 1;
   
-  -- If we found a match, get player count
-  IF v_match_id IS NOT NULL THEN
-    SELECT COUNT(*)::INTEGER
-    INTO v_current_players
-    FROM match_players mp2
-    WHERE mp2.match_id = v_match_id;
-  END IF;
-  
   -- If match found
   IF v_match_id IS NOT NULL THEN
     -- Already in match?
@@ -59,20 +50,14 @@ BEGIN
     ) THEN
       SELECT status INTO v_match_status FROM matches WHERE id = v_match_id;
       
+      -- Count players once
       SELECT COUNT(*)::INTEGER INTO v_current_players
       FROM match_players mp4
       WHERE mp4.match_id = v_match_id;
       
-      SELECT COUNT(*)::INTEGER INTO v_player_count
-      FROM match_players mp5
-      WHERE mp5.match_id = v_match_id AND mp5.joined_at < (
-        SELECT joined_at FROM match_players mp6
-        WHERE mp6.match_id = v_match_id AND mp6.player_id = p_user_id
-      );
-      
       RETURN QUERY SELECT 
         v_match_id,
-        CASE WHEN v_player_count = 0 THEN 'player1' ELSE 'player2' END,
+        CASE WHEN v_current_players <= 1 THEN 'player1' ELSE 'player2' END,
         v_match_status,
         v_current_players;
       RETURN;
@@ -83,7 +68,7 @@ BEGIN
     VALUES (v_match_id, p_user_id, NOW())
     ON CONFLICT (match_id, player_id) DO NOTHING;
     
-    -- Re-count
+    -- Re-count once
     SELECT COUNT(*)::INTEGER INTO v_current_players
     FROM match_players mp7
     WHERE mp7.match_id = v_match_id;
